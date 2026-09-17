@@ -7,6 +7,13 @@ a full admissible-means type hierarchy threaded through every backend, and a
 new shooting/Hamiltonian geodesic method. This plan supersedes the informal
 "Step 3: ground_cost, Sinkhorn" note from earlier.
 
+**Revision (2026-09-17):** reordered so SOCP lands before shooting (shooting
+needs *something* to validate against besides the two-node closed form --
+without SOCP first we'd be building shooting with a weaker test target than
+the Julia suite actually uses). The autodiff-native Sinkhorn layer is now two
+steps (torch and jax), both pluggable behind one interface, rather than a
+single either/or choice.
+
 **Rule for every step below:** small commit, its own tests, cross-checked
 against a fixed numeric example against the Julia original where practical,
 reviewed via PR before the next step starts. Same discipline as Steps 1-2.
@@ -95,32 +102,42 @@ ground_cost"`.
    a small and large iteration budget `L`; `simplex_regression` recovers
    known synthesis weights on a random small graph.
 
-6. **`sinkhorn/torch.py` (optional, ML-facing): autograd-native variant.**
-   A thin `torch` (or `jax`) re-expression of the *forward* Sinkhorn
-   barycenter only -- once you have autograd, the hand-derived backward
-   pass from Step 5 is redundant for anything built with that framework.
-   This is the piece meant to be dropped into an actual training loop
-   (`loss.backward()` works directly) rather than the closed-form gradient,
-   which exists mainly for parity/testing and for callers who don't want a
-   torch dependency. Needs a decision from you: torch or jax (see "Open
-   questions" below).
+6. **`sinkhorn/backends/torch_backend.py`: autograd-native variant (torch).**
+   A thin `torch` re-expression of the *forward* Sinkhorn barycenter --
+   once you have autograd, the hand-derived backward pass from Step 5 is
+   redundant for anything built with that framework. `torch` is an optional
+   dependency (`pip install graphtransport[torch]`); importing this module
+   without `torch` installed raises a clear `ImportError` with an install
+   hint, not a bare `ModuleNotFoundError`.
    Test: forward output matches the numpy version to numerical tolerance;
-   `torch.autograd.gradcheck` (or `jax.test_util.check_grads`) passes.
+   `torch.autograd.gradcheck` passes.
 
-7. **API dispatch: `geodesic`/`barycenter`/`analysis` with `method="sinkhorn"`.**
+7. **`sinkhorn/backends/jax_backend.py`: autograd-native variant (jax).**
+   Same forward math, re-expressed for `jax` (also optional,
+   `pip install graphtransport[jax]`). Both backends implement the same
+   small interface (e.g. a `sinkhorn_barycenter(coords, measures, cost,
+   epsilon, iters)` free function per module) so callers pick a backend by
+   which module they import, not by an internal branch -- keeps both
+   optional dependencies genuinely optional and avoids a runtime "which
+   framework is installed" dispatch layer neither of us needs yet. Revisit
+   this if a real caller wants framework-agnostic code.
+   Test: forward output matches the numpy version; `jax.test_util.check_grads`
+   passes; a shared test module parametrized over both backends (skipped if
+   that backend isn't installed) checks the two agree with each other.
+
+8. **API dispatch: `geodesic`/`barycenter`/`analysis` with `method="sinkhorn"`.**
    Port the unified-entry-point wrappers from `API.jl` (`_geodesic_sinkhorn`,
    the `:sinkhorn` branches of `barycenter`/`analysis`) as the first method
    registered in a dispatcher. Establishes the multi-method API shape
    (`method=` keyword, `GeodesicSolution`-equivalent return type) that later
-   phases (shooting, SOCP) plug additional methods into, without committing
-   to those now.
+   phases (shooting, SOCP) plug additional methods into.
    Test: mirrors `@testset "unified API..."`'s sinkhorn-specific assertions.
 
 ## Phase 3 -- Predefined graphs (cheap, dataset-adjacent utility)
 
 Source: `src/core/CommonGraphs.jl`.
 
-8. **`graphs.py`: constructors.** `triangle`, `triangle_with_tail`, `square`,
+9. **`graphs.py`: constructors.** `triangle`, `triangle_with_tail`, `square`,
    `t_graph`, `double_t`, `cube`, `triangular_prism`, `hypercube`,
    `weighted_hypercube`, `grid(n)`. All pure edge-list constructions -- no
    new numerical machinery, just data. Skip `ma_house` (needs the bundled
@@ -130,66 +147,76 @@ Source: `src/core/CommonGraphs.jl`.
    Test: node/edge counts match each graph's known structure; `grid(n)` for
    small `n` matches a hand-checked adjacency.
 
-## Phase 4 -- Shooting / Hamiltonian (self-contained, every mean, no external solver -- second-highest ML relevance after Sinkhorn)
+## Phase 4 -- SOCP (moved ahead of shooting: gives shooting a real validation target, not just the two-node closed form)
 
-Source: `src/shooting/Hamiltonian.jl`, `src/shooting/ExpLog.jl`, the shared
-Gram-QP core in `src/core/Analysis.jl`. Test targets: `@testset "Hamiltonian
-shooting..."`, `@testset "log_map by shooting"`, `@testset
-"analyze_shooting..."`.
+Source: `src/socp/*.jl`, plus the shared Gram-QP core in `src/core/Analysis.jl`
+(needed here first, then reused by shooting's `analyze_shooting` in Phase 5).
+Dependency: `cvxpy`, with `clarabel` as the conic backend (matches what the
+Julia side now uses) and `SCS` as a fallback (bundled with `cvxpy` by
+default, so it's a good "just works" path if `clarabel`'s Python package
+has friction). Test targets: `@testset "geodesic_socp vs two-node closed
+form"`, `@testset "SOCP with each admissible mean"`, `@testset
+"barycenter_socp..."`, `@testset "analyze_socp..."`.
 
-9. **`analysis.py`: shared Gram-matrix simplex QP.** `potential_gram_qp` and
-   its underlying simplex-constrained QP solve. Julia uses Convex.jl/SCS for
-   this, but the QP here is tiny (`p x p`, `p` = number of references,
-   typically <= 5) -- `scipy.optimize.minimize(method="SLSQP")` or a simple
-   projected-gradient solve is enough; no need for a convex-programming
-   dependency for this piece. This is needed by both `analyze_shooting`
-   (this phase) and, later, `analyze_socp` (Phase 5) -- porting it once here
-   avoids duplicating it when/if Phase 5 happens.
-   Test: mirrors `@testset "potential_gram_qp: Gram matrix is the Riemannian
-   inner product at the target"`.
+10. **`analysis.py`: shared Gram-matrix simplex QP.** `potential_gram_qp`
+    and its underlying simplex-constrained QP solve
+    (`solve_barycentric_coordinates_qp`). Small (`p x p`, `p` = number of
+    references, typically <= 5) -- now that `cvxpy` is a dependency anyway
+    (Step 11), solve it there too rather than mixing in a second QP
+    approach, matching the Julia original's use of Convex.jl/SCS for this
+    exact piece.
+    Test: mirrors `@testset "potential_gram_qp: Gram matrix is the
+    Riemannian inner product at the target"`.
 
-10. **`shooting/hamiltonian.py`: the flow.** `hamiltonian`, `hamiltonian_flow`,
-    `integrate_hamiltonian` (RK4 with adaptive interval halving on a
-    positivity floor -- port the `PositivityFloorError` exception and the
-    halving/retry logic faithfully). Pure numpy ODE integration, needs the
-    mean's `partial_s`/`partial_t` from Phase 1.
+11. **`socp/geodesic.py`: the cone program.** `geodesic_socp` via `cvxpy`.
+    Each mean's `_mean_cone!` needs translating to a `cvxpy` constraint;
+    `QuadLogMean`'s terms are power-cone constraints, which `cvxpy` supports
+    natively via `cp.PowCone3D`.
+    Test: mirrors `@testset "geodesic_socp vs two-node closed form"` and
+    `@testset "SOCP with each admissible mean"` (per-mean two-node closed
+    form, distance ordering `harmonic >= geometric >= logarithmic >=
+    arithmetic`).
+
+12. **`socp/barycenter.py`, `socp/analysis.py`.** `barycenter_socp`
+    (joint SOCP over all references), `analyze_socp` (reuses Step 10's
+    Gram-QP core with SOCP-sourced tangent vectors).
+    Test: mirrors `@testset "barycenter_socp..."` and `@testset
+    "analyze_socp: recovers barycentric coordinates"`.
+
+13. **API dispatch extension: `method="socp"`.** Wire `geodesic_socp`/
+    `barycenter_socp`/`analyze_socp` into the Phase 2 Step 8 dispatcher.
+
+## Phase 5 -- Shooting / Hamiltonian (self-contained, every mean, no solver dependency; now validated against Phase 4's SOCP)
+
+Source: `src/shooting/Hamiltonian.jl`, `src/shooting/ExpLog.jl`. Test
+targets: `@testset "Hamiltonian shooting..."`, `@testset "log_map by
+shooting"` (its real target: round-trip `W2`/`m0` against `geodesic_socp`,
+now available), `@testset "analyze_shooting..."`.
+
+14. **`shooting/hamiltonian.py`: the flow.** `hamiltonian`,
+    `hamiltonian_flow`, `integrate_hamiltonian` (RK4 with adaptive interval
+    halving on a positivity floor -- port the `PositivityFloorError`
+    exception and the halving/retry logic faithfully). Pure numpy ODE
+    integration, needs the mean's `partial_s`/`partial_t` from Phase 1.
     Test: mirrors `@testset "Hamiltonian shooting: conservation laws"` and
     the per-mean conservation-law testset.
 
-11. **`shooting/explog.py`: exp/log maps.** `weighted_laplacian`,
+15. **`shooting/explog.py`: exp/log maps.** `weighted_laplacian`,
     `solve_weighted_laplacian`, `momentum_to_potential`, `exp_map`, `log_map`
     (Newton's method with warm/cold retry), `log_map_mollified` (boundary
     fallback), `analyze_shooting`. The most numerically delicate piece in
-    this phase -- Newton convergence and the positivity floor need care.
-    Test: mirrors `@testset "log_map by shooting"` (round-trip against
-    `geodesic_socp`'s `W2`/`m0` -- this test target requires Phase 5 to be
-    done first, or falls back to the two-node closed form and shooting-vs-
-    shooting consistency checks only) and `@testset "log_map_mollified..."`.
+    this plan -- Newton convergence and the positivity floor need care.
+    Test: mirrors `@testset "log_map by shooting"`'s actual target now that
+    Phase 4 exists (round-trip `W2`/`m0` vs. `geodesic_socp`, Newton
+    iteration counts) and `@testset "log_map_mollified..."`.
 
-12. **`api.py` extension: `barycenter(method="shooting")`.** The Riemannian
-    gradient-descent loop from `API.jl`'s `_barycenter_shooting` (log-map to
-    every reference, descend, exp-map, halve/double step size on
-    rejection/acceptance).
-    Test: mirrors the shooting barycenter section of `@testset "unified
-    API..."` and the per-mean barycenter+analysis round trip.
-
-## Phase 5 -- SOCP (optional: exact certificate, but needs a conic solver dependency)
-
-Source: `src/socp/*.jl`. Lower priority than Phases 2-4 for the stated
-ML-usability goal -- shooting already covers every admissible mean without a
-solver dependency, just without SOCP's global-optimum guarantee. Worth doing
-only if you want the exact certificate (e.g. to validate shooting's output,
-as the Julia tests do) or need boundary-supported measures (shooting
-requires strictly positive densities; SOCP doesn't).
-
-13. **`socp/geodesic.py`: the cone program.** `cvxpy` + a conic backend
-    (`clarabel` has a Python package and matches what Julia now uses, or
-    `SCS`). Each mean's `_mean_cone!` needs translating to a `cvxpy`
-    constraint; `QuadLogMean`'s terms are power-cone constraints, which
-    `cvxpy` supports natively via `cp.PowCone3D`.
-
-14. **`socp/barycenter.py`, `socp/analysis.py`.** `barycenter_socp`,
-    `analyze_socp` (reuses Phase 4's Gram-QP core).
+16. **API dispatch extension: `method="shooting"`.** The Riemannian
+    gradient-descent barycenter loop from `API.jl`'s `_barycenter_shooting`
+    (log-map to every reference, descend, exp-map, halve/double step size
+    on rejection/acceptance).
+    Test: mirrors the shooting sections of `@testset "unified API..."` and
+    `@testset "SOCP with each admissible mean"`'s "barycenter + analysis
+    round trip per mean" (both methods, same graph, cross-checked).
 
 ## Phase 6 -- Chambolle-Pock: recommend skipping
 
@@ -209,21 +236,3 @@ parameter sweeps, benchmarks) -- these aren't library code and don't belong
 in a reusable package. If any specific experiment's *result* is worth a
 blog post or a demo, that's a `research-site` content question, not a
 porting one.
-
-## Open questions for you
-
-- **Phase 2, Step 6 (torch vs. jax):** which framework should the
-  autodiff-native Sinkhorn layer target? Torch is the more common choice
-  for "drop into someone else's training loop"; jax composes better with
-  `vmap`/`jit` if you want to batch over many graphs/weight-settings at
-  once (relevant for, e.g., the site's demo computing many barycenters).
-- **Phase 4 vs. Phase 5 ordering:** this plan sequences shooting before
-  SOCP because it has no solver dependency, but Phase 4 Step 11's test
-  target ideally cross-checks against SOCP's `W2`. Confirm you're fine
-  validating shooting against the two-node closed form and internal
-  consistency only until/unless Phase 5 happens, rather than reordering.
-- **Scope confirmation:** confirm Phases 1-4 (means, MarkovGraph rework,
-  Sinkhorn, predefined graphs, shooting) as the target scope for now, with
-  Phases 5-6 (SOCP, Chambolle-Pock) explicitly deferred/optional. This plan
-  is written assuming that's the right cut, given the "useful for ML
-  projects" goal, but it's your call.
