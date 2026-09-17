@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 
-from graphtransport.means import geomean
+from graphtransport.means import GeometricMean
 
 
 class MarkovGraph:
@@ -101,7 +101,7 @@ def graph_divergence(G: MarkovGraph, m) -> np.ndarray:
     return G.D @ m
 
 
-def metric_tensor(G: MarkovGraph, rho, mean=geomean) -> np.ndarray:
+def metric_tensor(G: MarkovGraph, rho, mean=GeometricMean()) -> np.ndarray:
     """theta[e] = mean(rho[x], rho[y]) for the oriented edge e = (x, y).
 
     Does not include the edge weight kappa; the Riemannian inner product of

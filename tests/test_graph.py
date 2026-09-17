@@ -3,7 +3,9 @@ import pytest
 
 from graphtransport.chains import markov_chain_from_edge_list
 from graphtransport.graph import MarkovGraph, graph_divergence, graph_gradient, metric_tensor
-from graphtransport.means import geomean
+from graphtransport.means import GeometricMean
+
+geomean = GeometricMean()
 
 
 def _triangle():
