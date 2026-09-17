@@ -7,7 +7,7 @@ name = "graphtransport"
 version = "0.1.0"
 description = "Python port of GraphTransportation.jl: optimal transport and Wasserstein barycenters on graphs."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
