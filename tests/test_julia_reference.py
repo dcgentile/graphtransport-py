@@ -27,6 +27,7 @@ from julia_values import (
     JULIA_API_GEO_RHO_MID,
     JULIA_API_TRANSPORT_COST,
     JULIA_API_ANALYSIS_LAMBDA,
+    JULIA_SOCP,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
