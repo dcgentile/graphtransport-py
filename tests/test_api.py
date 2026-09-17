@@ -47,33 +47,40 @@ def test_barycenter_returns_density_matching_core(setup):
 
 def test_barycenter_zero_weight_drops_that_reference(setup):
     G, cost, _, refs = setup
-    _, _, info = barycenter(G, refs, [0.7, 0.0, 0.3], cost=cost, epsilon=0.1, iters=64)
+    _, _, info = barycenter(G, refs, [0.7, 0.0, 0.3], method="sinkhorn", cost=cost, epsilon=0.1, iters=64)
     assert len(info["marginal_errors"]) == 2
 
 
 def test_barycenter_requires_cost_and_epsilon(setup):
     G, cost, _, refs = setup
     with pytest.raises(ValueError, match="cost="):
-        barycenter(G, refs, [0.5, 0.3, 0.2], epsilon=0.1)
+        barycenter(G, refs, [0.5, 0.3, 0.2], method="sinkhorn", epsilon=0.1)
     with pytest.raises(ValueError, match="epsilon="):
-        barycenter(G, refs, [0.5, 0.3, 0.2], cost=cost)
+        barycenter(G, refs, [0.5, 0.3, 0.2], method="sinkhorn", cost=cost)
     with pytest.raises(ValueError, match="9x9"):
-        barycenter(G, refs, [0.5, 0.3, 0.2], cost=cost[:3, :3], epsilon=0.1)
+        barycenter(G, refs, [0.5, 0.3, 0.2], method="sinkhorn", cost=cost[:3, :3], epsilon=0.1)
 
 
 def test_unknown_method_raises(setup):
     G, cost, _, refs = setup
     with pytest.raises(ValueError, match="method must be one of"):
-        barycenter(G, refs, [0.5, 0.3, 0.2], method="socp", cost=cost, epsilon=0.1)
+        barycenter(G, refs, [0.5, 0.3, 0.2], method="chambolle_pock", cost=cost, epsilon=0.1)
     with pytest.raises(ValueError, match="method must be one of"):
         geodesic(G, refs[0], refs[1], method="chambolle_pock", cost=cost, epsilon=0.1)
     with pytest.raises(ValueError, match="method must be one of"):
         analysis(G, refs[0], refs, method="shooting", cost=cost, epsilon=0.1)
 
 
+def test_default_method_is_socp():
+    import inspect
+
+    for f in (geodesic, barycenter, analysis):
+        assert inspect.signature(f).parameters["method"].default == "socp"
+
+
 def test_geodesic_shape_endpoints_and_nans(setup):
     G, cost, _, refs = setup
-    sol = geodesic(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=4, iters=256)
+    sol = geodesic(G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1, N=4, iters=256)
     assert isinstance(sol, GeodesicSolution)
     assert sol.rho.shape == (9, 5)
     assert sol.m.shape == (12, 4) and np.all(np.isnan(sol.m))
@@ -81,31 +88,34 @@ def test_geodesic_shape_endpoints_and_nans(setup):
     assert sol.status == "converged" and sol.solvetime >= 0
     np.testing.assert_allclose((sol.rho * G.pi[:, None]).sum(axis=0), 1.0, atol=1e-8)
     # end columns are the blurred endpoints: the barycenter at weights (1,0) / (0,1)
-    np.testing.assert_allclose(sol.rho[:, 0], barycenter(G, refs[:2], [1, 0], cost=cost, epsilon=0.1, iters=256)[0])
-    np.testing.assert_allclose(sol.rho[:, -1], barycenter(G, refs[:2], [0, 1], cost=cost, epsilon=0.1, iters=256)[0])
+    kw = dict(method="sinkhorn", cost=cost, epsilon=0.1, iters=256)
+    np.testing.assert_allclose(sol.rho[:, 0], barycenter(G, refs[:2], [1, 0], **kw)[0])
+    np.testing.assert_allclose(sol.rho[:, -1], barycenter(G, refs[:2], [0, 1], **kw)[0])
     assert sol.W2 > 0
 
 
 def test_transport_cost_is_sqrt_w2(setup):
     G, cost, _, refs = setup
-    sol = geodesic(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=2, iters=64)
-    assert transport_cost(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=2, iters=64) == pytest.approx(np.sqrt(sol.W2))
+    kw = dict(method="sinkhorn", cost=cost, epsilon=0.1, N=2, iters=64)
+    sol = geodesic(G, refs[0], refs[1], **kw)
+    assert transport_cost(G, refs[0], refs[1], **kw) == pytest.approx(np.sqrt(sol.W2))
 
 
 def test_analysis_recovers_synthesis_weights(setup):
     G, cost, _, refs = setup
     lam = np.array([0.5, 0.3, 0.2])
-    nu, _, _ = barycenter(G, refs, lam, cost=cost, epsilon=0.1, iters=256)
-    lam_hat = analysis(G, nu, refs, cost=cost, epsilon=0.1, iters=256)
+    kw = dict(method="sinkhorn", cost=cost, epsilon=0.1, iters=256)
+    nu, _, _ = barycenter(G, refs, lam, **kw)
+    lam_hat = analysis(G, nu, refs, **kw)
     np.testing.assert_allclose(lam_hat, lam, atol=1e-5)
 
 
 def test_analysis_rejects_gram_matrix_options(setup):
     G, cost, _, refs = setup
     with pytest.raises(ValueError, match="not a Gram-matrix method"):
-        analysis(G, refs[0], refs, cost=cost, epsilon=0.1, return_system=True)
+        analysis(G, refs[0], refs, method="sinkhorn", cost=cost, epsilon=0.1, return_system=True)
     with pytest.raises(ValueError, match="not a Gram-matrix method"):
-        analysis(G, refs[0], refs, cost=cost, epsilon=0.1, compute_condition=True)
+        analysis(G, refs[0], refs, method="sinkhorn", cost=cost, epsilon=0.1, compute_condition=True)
 
 
 # Input validation at the entry points (method-agnostic).
@@ -198,3 +208,24 @@ def test_geodesic_path_matches_columnwise_barycenters(setup):
     for k, t in enumerate(np.linspace(0, 1, 5)):
         nu, _, _ = barycenter(G, refs[:2], [1 - t, t], cost=cost, **KW)
         np.testing.assert_allclose(sol.rho[:, k], nu, rtol=1e-12)
+
+
+
+def test_socp_method_dispatches_to_socp_backend():
+    pytest.importorskip("cvxpy")
+    from graphtransport import GeodesicSolution as GS, triangle_markov_chain
+    from graphtransport.socp import geodesic_socp
+
+    Q, pi = triangle_markov_chain()
+    G = MarkovGraph(Q, pi)
+    refs = [np.array([2.0, 0.5, 0.5]), np.array([0.5, 2.0, 0.5]), np.array([0.5, 0.5, 2.0])]
+    sol = geodesic(G, refs[0], refs[1], N=4)  # default method
+    assert isinstance(sol, GS)
+    assert sol.W2 == pytest.approx(geodesic_socp(G, refs[0], refs[1], N=4).W2, rel=1e-8)
+    assert transport_cost(G, refs[0], refs[1], N=4) == pytest.approx(np.sqrt(sol.W2))
+    lam = np.array([0.5, 0.3, 0.2])
+    nu, J, info = barycenter(G, refs, lam, N=4)
+    assert len(info["geodesics"]) == 3 and J == pytest.approx(sum(l * g.W2 for l, g in zip(lam, info["geodesics"])), rel=1e-8)
+    np.testing.assert_allclose(analysis(G, nu, refs, N=4), lam, atol=1e-3)
+    lam_hat, A = analysis(G, nu, refs, N=4, return_system=True)
+    assert A.shape == (3, 3)

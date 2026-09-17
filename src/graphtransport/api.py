@@ -1,8 +1,9 @@
 """Unified entry points, ported from GraphTransportation.jl's API.jl.
 
 One public function per task with a ``method`` keyword selecting the
-numerical algorithm. Only ``"sinkhorn"`` is registered so far; the SOCP and
-shooting methods plug into the same dispatch tables in later steps.
+numerical algorithm: ``"socp"`` (default, as in Julia; needs the optional
+``graphtransport[socp]`` extra) or ``"sinkhorn"``. The shooting method
+plugs into the same dispatch tables in a later step.
 
 Densities: as in the Julia package, ``rhoA``, ``rhoB``, ``refs``, ``target``
 and returned barycenters are densities with respect to the graph's
@@ -206,15 +207,42 @@ def _analysis_sinkhorn(
     return simplex_regression(mu, target * G.pi, cost, epsilon, iters=iters, alpha0=alpha0)
 
 
-GEODESIC_METHODS = {"sinkhorn": _geodesic_sinkhorn}
-BARYCENTER_METHODS = {"sinkhorn": _barycenter_sinkhorn}
-ANALYSIS_METHODS = {"sinkhorn": _analysis_sinkhorn}
+# The SOCP backend is imported lazily: cvxpy is optional, and socp/ imports
+# GeodesicSolution from this module.
+def _geodesic_socp(G: MarkovGraph, rhoA, rhoB, **kwargs) -> GeodesicSolution:
+    from graphtransport.socp import geodesic_socp
+
+    return geodesic_socp(G, rhoA, rhoB, **kwargs)
+
+
+def _barycenter_socp(G: MarkovGraph, refs, lam, **kwargs):
+    from graphtransport.socp import barycenter_socp
+
+    nu, J, geodesics = barycenter_socp(G, refs, lam, **kwargs)
+    return nu, J, {"geodesics": geodesics}
+
+
+def _analysis_socp(G: MarkovGraph, target, refs, **kwargs):
+    from graphtransport.socp import analyze_socp
+
+    return analyze_socp(G, target, refs, **kwargs)
+
+
+GEODESIC_METHODS = {"socp": _geodesic_socp, "sinkhorn": _geodesic_sinkhorn}
+BARYCENTER_METHODS = {"socp": _barycenter_socp, "sinkhorn": _barycenter_sinkhorn}
+ANALYSIS_METHODS = {"socp": _analysis_socp, "sinkhorn": _analysis_sinkhorn}
 # Methods that can produce W2 without building the whole geodesic.
 TRANSPORT_COST_METHODS = {"sinkhorn": _transport_cost_sinkhorn}
 
 
-def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = "sinkhorn", **kwargs) -> GeodesicSolution:
+def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = "socp", **kwargs) -> GeodesicSolution:
     """The discrete transport geodesic between densities rhoA and rhoB on G.
+
+    method="socp" (default): a single second-order-cone program
+    (socp.geodesic_socp). Handles any densities, including boundary-supported
+    ones; time-discretisation error O(1/N). Keywords: ``N``, ``solver``,
+    ``check``, ``verbose``, plus solver options. Honours every conic
+    AdmissibleMean in G.mean (QuadLogMean for the logarithmic mean).
 
     method="sinkhorn": the entropic displacement interpolation for a ground
     cost -- the path is the entropic barycenter of the two endpoints at
@@ -233,7 +261,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = "sinkhorn", **kwargs) 
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
 
-def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = "sinkhorn", **kwargs) -> float:
+def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = "socp", **kwargs) -> float:
     """The discrete transport distance W(rhoA, rhoB) (not squared):
     sqrt(geodesic(...).W2). See geodesic for the methods and keywords.
 
@@ -247,9 +275,14 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = "sinkhorn", **kw
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
 
 
-def barycenter(G: MarkovGraph, refs, lam, *, method: str = "sinkhorn", **kwargs):
+def barycenter(G: MarkovGraph, refs, lam, *, method: str = "socp", **kwargs):
     """The discrete transport barycenter of the reference densities ``refs``
     with weights ``lam``: the minimiser of J(nu) = sum_i lam_i W^2(refs_i, nu).
+
+    method="socp" (default): one joint second-order-cone program
+    (socp.barycenter_socp), solved to its global optimum.
+    info = {"geodesics": [...]} holds one GeodesicSolution per reference
+    with lam_i > 0. Keywords: ``N``, ``solver``, ``check``, ``verbose``.
 
     method="sinkhorn": the entropically regularised Wasserstein barycenter
     for a ground cost (Benamou et al. 2015; Bonneel, Peyré & Cuturi 2016).
@@ -268,9 +301,15 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = "sinkhorn", **kwargs)
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
 
 
-def analysis(G: MarkovGraph, target, refs, *, method: str = "sinkhorn", **kwargs) -> np.ndarray:
+def analysis(G: MarkovGraph, target, refs, *, method: str = "socp", **kwargs) -> np.ndarray:
     """Recover the barycentric coordinates of ``target`` with respect to the
     reference densities ``refs``.
+
+    method="socp" (default): socp.analyze_socp -- geodesic SOCPs from the
+    target to each reference, the Gram matrix of their endpoint potentials
+    (or initial momenta, ``convention="momentum"``), and the simplex QP.
+    Keywords: ``N``, ``solver``, ``convention``, ``compute_condition``,
+    ``return_system`` (also return the Gram matrix A).
 
     method="sinkhorn": Wasserstein barycentric coordinates for a ground cost
     (Bonneel, Peyré & Cuturi 2016; simplex_regression): L-BFGS over the
