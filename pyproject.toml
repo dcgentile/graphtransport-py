@@ -13,6 +13,7 @@ dependencies = ["numpy", "scipy"]
 dev = ["pytest"]
 torch = ["torch"]
 jax = ["jax"]
+socp = ["cvxpy", "clarabel"]
 
 [tool.pytest.ini_options]
 pythonpath = ["tests"]
