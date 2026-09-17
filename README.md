@@ -6,9 +6,11 @@ graph/dataset utility), not just a 1:1 translation of the Julia API.
 
 ## Status
 
-Skeleton only. No algorithm code has been ported yet. See the project's porting
-plan (tracked in conversation with the maintainer) for the module-by-module order.
-Each module lands as its own reviewed, tested commit — nothing is ported in bulk.
+Steps 1-2 done: package skeleton, Markov chain constructors, `MarkovGraph`.
+See [PORTING_PLAN.md](PORTING_PLAN.md) for the up-to-date, in-depth plan for
+everything remaining (re-derived from the current Julia source, which has
+grown substantially since Step 2). Each step lands as its own reviewed,
+tested commit/PR — nothing is ported in bulk.
 
 There is a `graphtransport-py-draft` sibling directory containing an earlier,
 unreviewed first attempt at a full port. It is kept only as reference material
