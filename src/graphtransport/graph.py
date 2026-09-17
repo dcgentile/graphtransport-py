@@ -125,6 +125,18 @@ def graph_divergence(G: MarkovGraph, m) -> np.ndarray:
     return G.D @ m
 
 
+def dense_metric_tensor(rho, mean) -> np.ndarray:
+    """The n x n metric tensor of GraphTransportation.jl's dense graph calculus:
+    entry (i, j) is mean(rho[i], rho[j]) for i != j and zero on the diagonal.
+    Used with dense antisymmetric edge fields (the momentum convention of the
+    SOCP analysis); the per-edge `metric_tensor` is the compact counterpart."""
+    rho = np.asarray(rho, dtype=float)
+    g = mean(rho[:, np.newaxis], rho[np.newaxis, :])
+    g = np.array(g, dtype=float)
+    np.fill_diagonal(g, 0.0)
+    return g
+
+
 def metric_tensor(G: MarkovGraph, rho, mean=None) -> np.ndarray:
     """theta[e] = mean(rho[x], rho[y]) for the oriented edge e = (x, y).
 
