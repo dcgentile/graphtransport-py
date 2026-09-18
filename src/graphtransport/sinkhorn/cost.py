@@ -44,11 +44,11 @@ def graph_diameter(G: MarkovGraph) -> int:
 
 
 def ground_cost(
-    G: MarkovGraph, rule: str, *, t: int | None = None, laziness: float = 0.5, normalize: bool = True
+    G: MarkovGraph, rule: str = "shortest_path", *, t: int | None = None, laziness: float = 0.5, normalize: bool = True
 ) -> np.ndarray:
     """A ground cost matrix on the nodes of G for the Sinkhorn barycenter.
 
-    - "shortest_path": squared BFS hop count (edges of G unweighted).
+    - "shortest_path" (default): squared BFS hop count (edges of G unweighted).
     - "diffusion": squared diffusion distance at time t,
       D_t(x, y)^2 = sum_z (P^t[x, z] - P^t[y, z])^2 / pi(z), under the lazy
       chain P = laziness * I + (1 - laziness) * G.Q (same stationary pi).

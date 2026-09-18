@@ -157,3 +157,8 @@ def test_diffusion_cost_rejects_bad_laziness(laziness):
 def test_single_node_graph_has_zero_cost(rule):
     G = MarkovGraph(np.array([[1.0]]), np.array([1.0]))
     np.testing.assert_array_equal(ground_cost(G, rule, t=1), [[0.0]])
+
+
+def test_default_rule_is_shortest_path():
+    G = _grid(3)
+    np.testing.assert_array_equal(ground_cost(G), ground_cost(G, "shortest_path"))
