@@ -14,6 +14,12 @@ once per graph edge.
 For all s, t > 0: HarmonicMean <= GeometricMean <= LogarithmicMean <=
 ArithmeticMean. The arithmetic mean is the only one with theta(0, t) != 0,
 so it is the only one under which mass can flow out of an empty node.
+
+Boundary conventions, shared by every mean: theta extends continuously to
+s = 0 or t = 0 (so theta(0, 0) = 0); partial_s takes its limiting value
+there, which may be +inf, except at (0, 0) where no limit exists and it is
+nan. A negative argument is outside the domain and gives nan. None of
+these cases emits a numpy warning.
 """
 
 from __future__ import annotations
@@ -25,6 +31,13 @@ import numpy as np
 # Below this |s/t - 1| the logarithmic mean and its derivative switch to a
 # Taylor series so both are smooth through s == t (0/0 in the closed form).
 _LOG_SERIES_SWITCH = 1e-3
+
+
+def _densities(s, t):
+    """s and t as broadcast float arrays, nan wherever either is negative."""
+    s, t = np.broadcast_arrays(np.asarray(s, dtype=float), np.asarray(t, dtype=float))
+    outside = (s < 0) | (t < 0)
+    return np.where(outside, np.nan, s), np.where(outside, np.nan, t)
 
 
 class AdmissibleMean(ABC):
@@ -54,34 +67,40 @@ class GeometricMean(AdmissibleMean):
     """theta(s, t) = sqrt(s t). The package default (Erbar et al. 2020)."""
 
     def __call__(self, s, t):
-        return np.sqrt(np.asarray(s, dtype=float) * np.asarray(t, dtype=float))
+        s, t = _densities(s, t)
+        return np.sqrt(s * t)
 
     def partial_s(self, s, t):
-        return np.sqrt(np.asarray(t, dtype=float) / np.asarray(s, dtype=float)) / 2
+        s, t = _densities(s, t)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.sqrt(t / s) / 2
 
 
 class ArithmeticMean(AdmissibleMean):
     """theta(s, t) = (s + t) / 2. Does not vanish at an empty node."""
 
     def __call__(self, s, t):
-        return (np.asarray(s, dtype=float) + np.asarray(t, dtype=float)) / 2
+        s, t = _densities(s, t)
+        return (s + t) / 2
 
     def partial_s(self, s, t):
-        return np.full(np.broadcast(np.asarray(s), np.asarray(t)).shape, 0.5)
+        s, t = _densities(s, t)
+        return np.where(np.isnan(s + t), np.nan, 0.5)
 
 
 class HarmonicMean(AdmissibleMean):
     """theta(s, t) = 2 s t / (s + t). The smallest of the four; bounded partial_s near zero."""
 
     def __call__(self, s, t):
-        s = np.asarray(s, dtype=float)
-        t = np.asarray(t, dtype=float)
-        return 2 * s * t / (s + t)
+        s, t = _densities(s, t)
+        with np.errstate(invalid="ignore"):
+            value = 2 * s * t / (s + t)
+        return np.where(s + t == 0, 0.0, value)
 
     def partial_s(self, s, t):
-        s = np.asarray(s, dtype=float)
-        t = np.asarray(t, dtype=float)
-        return 2 * t**2 / (s + t) ** 2
+        s, t = _densities(s, t)
+        with np.errstate(invalid="ignore"):
+            return 2 * t**2 / (s + t) ** 2
 
 
 class LogarithmicMean(AdmissibleMean):
@@ -90,25 +109,54 @@ class LogarithmicMean(AdmissibleMean):
     conic-representable; the SOCP uses QuadLogMean instead."""
 
     def __call__(self, s, t):
-        s = np.asarray(s, dtype=float)
-        t = np.asarray(t, dtype=float)
-        delta = s / t - 1
-        # (x-1)/ln x = 1 + d/2 - d^2/12 + d^3/24 - 19 d^4/720 + 3 d^5/160 + O(d^6)
-        series = t * (1 + delta * (1 / 2 + delta * (-1 / 12 + delta * (1 / 24 + delta * (-19 / 720 + delta * 3 / 160)))))
+        s, t = _densities(s, t)
+        # theta(s, t) = hi * f(lo / hi): symmetric, and the ratio stays in [0, 1]
+        # so it cannot overflow however small one argument is.
+        lo, hi = np.minimum(s, t), np.maximum(s, t)
         with np.errstate(divide="ignore", invalid="ignore"):
-            closed = t * delta / np.log1p(delta)
-        return np.where(np.abs(delta) < _LOG_SERIES_SWITCH, series, closed)
+            value = hi * self._f(lo / hi)
+        return np.where(hi == 0, 0.0, value)
 
     def partial_s(self, s, t):
-        s = np.asarray(s, dtype=float)
-        t = np.asarray(t, dtype=float)
-        delta = s / t - 1
-        # d/dx (x-1)/ln x = 1/2 - d/6 + d^2/8 - 19 d^3/180 + 3 d^4/32 + O(d^5)
-        series = 1 / 2 + delta * (-1 / 6 + delta * (1 / 8 + delta * (-19 / 180 + delta * 3 / 32)))
-        with np.errstate(divide="ignore", invalid="ignore"):
-            L = np.log1p(delta)
-            closed = (L - delta / (1 + delta)) / L**2
-        return np.where(np.abs(delta) < _LOG_SERIES_SWITCH, series, closed)
+        s, t = _densities(s, t)
+        # theta = t f(s/t) = s f(t/s), so d theta / d s is f'(s/t) or, with
+        # y = t/s, f(y) - y f'(y); use whichever keeps the ratio in [0, 1].
+        # np.where evaluates both ratios; the discarded one may overflow.
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            x = np.where(s <= t, s / t, t / s)
+            value = np.where(s <= t, self._f_prime(x), self._f_minus_x_f_prime(x))
+        value = np.where((s == 0) & (t > 0), np.inf, value)
+        return np.where((s > 0) & (t == 0), 0.0, value)
+
+    # f(x) = (x - 1) / ln x on [0, 1], with d = x - 1 in the series.
+
+    @staticmethod
+    def _log(x):
+        # log1p(x - 1) is exact near x == 1 but loses x entirely below ~1e-16
+        return np.where(x < 0.5, np.log(x), np.log1p(x - 1))
+
+    @classmethod
+    def _f(cls, x):
+        d = x - 1
+        # 1 + d/2 - d^2/12 + d^3/24 - 19 d^4/720 + 3 d^5/160 + O(d^6)
+        series = 1 + d * (1 / 2 + d * (-1 / 12 + d * (1 / 24 + d * (-19 / 720 + d * 3 / 160))))
+        return np.where(np.abs(d) < _LOG_SERIES_SWITCH, series, d / cls._log(x))
+
+    @classmethod
+    def _f_prime(cls, x):
+        d = x - 1
+        # 1/2 - d/6 + d^2/8 - 19 d^3/180 + 3 d^4/32 + O(d^5)
+        series = 1 / 2 + d * (-1 / 6 + d * (1 / 8 + d * (-19 / 180 + d * 3 / 32)))
+        L = cls._log(x)
+        return np.where(np.abs(d) < _LOG_SERIES_SWITCH, series, (L - d / x) / L**2)
+
+    @classmethod
+    def _f_minus_x_f_prime(cls, x):
+        d = x - 1
+        # 1/2 + d/6 - d^2/24 + d^3/45 - 7 d^4/480 + O(d^5)
+        series = 1 / 2 + d * (1 / 6 + d * (-1 / 24 + d * (1 / 45 + d * -7 / 480)))
+        L = cls._log(x)
+        return np.where(np.abs(d) < _LOG_SERIES_SWITCH, series, (d - L) / L**2)
 
 
 class QuadLogMean(AdmissibleMean):
@@ -136,14 +184,13 @@ class QuadLogMean(AdmissibleMean):
         return len(self.alpha)
 
     def __call__(self, s, t):
-        s = np.asarray(s, dtype=float)[..., np.newaxis]
-        t = np.asarray(t, dtype=float)[..., np.newaxis]
+        s, t = (x[..., np.newaxis] for x in _densities(s, t))
         return (self.w * s**self.alpha * t ** (1 - self.alpha)).sum(axis=-1)
 
     def partial_s(self, s, t):
-        s = np.asarray(s, dtype=float)[..., np.newaxis]
-        t = np.asarray(t, dtype=float)[..., np.newaxis]
-        return (self.w * self.alpha * s ** (self.alpha - 1) * t ** (1 - self.alpha)).sum(axis=-1)
+        s, t = (x[..., np.newaxis] for x in _densities(s, t))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return (self.w * self.alpha * s ** (self.alpha - 1) * t ** (1 - self.alpha)).sum(axis=-1)
 
     def __repr__(self) -> str:
         return f"QuadLogMean({self.K})"

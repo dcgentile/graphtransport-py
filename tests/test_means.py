@@ -109,3 +109,48 @@ def test_repr_and_equality():
     assert GeometricMean() != ArithmeticMean()
     assert QuadLogMean(6) == QuadLogMean(6)
     assert QuadLogMean(6) != QuadLogMean(8)
+
+
+VANISHING = [m for m in MEANS if not isinstance(m, ArithmeticMean)]
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("theta", VANISHING, ids=repr)
+def test_empty_node_boundary(theta: AdmissibleMean):
+    # theta vanishes whenever either node is empty, whichever way the edge points
+    for s, t in [(1.0, 0.0), (0.0, 1.0), (0.0, 0.0)]:
+        assert theta(s, t) == 0.0
+    assert theta.partial_s(1.0, 0.0) == 0.0
+    assert theta.partial_t(0.0, 1.0) == 0.0
+    assert np.isnan(theta.partial_s(0.0, 0.0))  # no limit exists at the origin
+
+
+@pytest.mark.filterwarnings("error")
+def test_partial_s_at_an_empty_node_is_the_limit():
+    for theta in [GeometricMean(), LogarithmicMean(), QuadLogMean(8)]:
+        assert theta.partial_s(0.0, 1.0) == np.inf
+    assert HarmonicMean().partial_s(0.0, 1.0) == 2.0
+    assert ArithmeticMean()(0.0, 1.0) == 0.5
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("theta", MEANS, ids=repr)
+def test_negative_arguments_are_nan(theta: AdmissibleMean):
+    s = np.array([-1.0, -1.0, 1.0, 1.0])
+    t = np.array([-1.0, 1.0, -1.0, 1.0])
+    expected = np.array([True, True, True, False])
+    np.testing.assert_array_equal(np.isnan(theta(s, t)), expected)
+    np.testing.assert_array_equal(np.isnan(theta.partial_s(s, t)), expected)
+
+
+@pytest.mark.filterwarnings("error")
+def test_logarithmic_mean_survives_extreme_ratios():
+    L = LogarithmicMean()
+    tiny = 1e-300  # s / t overflows; partial_s(tiny, 1) ~ 1 / (tiny ln^2 tiny) is still finite
+    for value in [L(1.0, tiny), L(tiny, 1.0), L.partial_s(1.0, tiny), L.partial_s(tiny, 1.0)]:
+        assert np.isfinite(value)
+    assert L(1.0, tiny) == L(tiny, 1.0)
+    # matches the closed form (s - t) / (ln s - ln t) away from s == t
+    s, t = _pairs()
+    np.testing.assert_allclose(L(s, t), (s - t) / (np.log(s) - np.log(t)), rtol=1e-12)
+    np.testing.assert_allclose(L.partial_s(s, t), (L(s, t) - L(s, t) ** 2 / s) / (s - t), rtol=1e-9)
