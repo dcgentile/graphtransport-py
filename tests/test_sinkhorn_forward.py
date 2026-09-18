@@ -120,3 +120,59 @@ def test_build_geodesic_rejects_wrong_measure_count(grid3):
     _, cost, mu = grid3
     with pytest.raises(ValueError):
         build_geodesic(mu, cost)
+
+
+@pytest.mark.parametrize("epsilon", [0.0, -0.1, np.inf, np.nan])
+def test_epsilon_must_be_positive_and_finite(grid3, epsilon):
+    _, cost, mu = grid3
+    with pytest.raises(ValueError, match="epsilon"):
+        regularize_cost(cost, epsilon)
+    with pytest.raises(ValueError, match="epsilon"):
+        sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, epsilon)
+    with pytest.raises(ValueError, match="epsilon"):
+        build_geodesic(mu[:, :2], cost, epsilon=epsilon)
+
+
+@pytest.mark.parametrize("steps", [0, -3, 2.0, True])
+def test_build_geodesic_rejects_bad_steps(grid3, steps):
+    _, cost, mu = grid3
+    with pytest.raises(ValueError, match="steps"):
+        build_geodesic(mu[:, :2], cost, steps=steps)
+
+
+def test_build_geodesic_single_step_is_the_two_endpoints(grid3):
+    _, cost, mu = grid3
+    assert build_geodesic(mu[:, :2], cost, steps=1, iters=64).shape == (9, 2)
+
+
+@pytest.mark.parametrize("iters", [0, 1])
+def test_barycenter_rejects_an_iteration_budget_that_runs_no_iterations(grid3, iters):
+    _, cost, mu = grid3
+    with pytest.raises(ValueError, match="iters"):
+        sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=iters)
+
+
+def test_barycenter_rejects_misshapen_inputs(grid3):
+    _, cost, mu = grid3
+    with pytest.raises(ValueError, match=r"shape \(n, S\)"):
+        sinkhorn_barycenter([0.5, 0.3, 0.2], mu.T, cost, 0.1)  # measures as rows
+    with pytest.raises(ValueError, match="one weight per measure"):
+        sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.1)
+
+
+@pytest.mark.filterwarnings("error")
+def test_kernel_underflow_raises_instead_of_returning_nan():
+    n = 9
+    cost = np.abs(np.subtract.outer(np.arange(n), np.arange(n))) ** 2 / 64.0
+    mu = np.eye(n)[:, [0, 8]]  # two point masses at opposite ends
+    assert np.all(np.isfinite(sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.01)))
+    with pytest.raises(FloatingPointError, match="larger epsilon"):
+        sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.001)
+    with pytest.raises(FloatingPointError, match="larger epsilon"):
+        sinkhorn_plan(regularize_cost(cost, 0.001), mu[:, 0], mu[:, 1])
+
+
+@pytest.mark.filterwarnings("error")
+def test_softmax_does_not_overflow():
+    np.testing.assert_allclose(logarithmic_change_of_variable([1000.0, 0.0]), [1.0, 0.0])
+    np.testing.assert_allclose(logarithmic_change_of_variable([-1000.0, -1000.0]), [0.5, 0.5])
