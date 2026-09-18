@@ -11,9 +11,18 @@ the Python code performs the same operations in the same order.
 """
 
 import numpy as np
+import pytest
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
-from graphtransport.sinkhorn import bfs_hops, ground_cost, sinkhorn_barycenter
+from graphtransport.sinkhorn import (
+    barycentric_loss,
+    bfs_hops,
+    ground_cost,
+    loss_gradient,
+    simplex_regression,
+    sinkhorn_barycenter,
+    sinkhorn_differentiate,
+)
 
 
 def _grid3():
@@ -45,6 +54,15 @@ JULIA_BARYCENTER_EPS01_ITERS256 = [0.16577498872441102, 0.32317635185395649, 0.1
 
 # sinkhorn_barycenter([0.25, 0.75], mu[:, 1:2], nothing, cost, 0.05; iters=64)
 JULIA_BARYCENTER2_EPS005_ITERS64 = [0.067265174704165875, 0.3724671819419369, 0.36798469030184033, 0.014795654493803391, 0.061165282218208147, 0.093067643163897887, 0.0020509646972534695, 0.0083996969016206721, 0.012803711577273613]
+
+# target q = the eps=0.1, iters=256 barycenter above; alpha = [0.2, -0.1, 0.3]; iters=40
+JULIA_LOSS_GRADIENT_ALPHA_ITERS40 = [-0.010972748868251907, -0.0061110476411330231, 0.017083796509384928]
+JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40 = 0.0064724165218138577
+# sinkhorn_differentiate([0.5, 0.3, 0.2], mu, q, cost, 0.1, 40)[2]: ~0 since q is
+# the barycenter at these weights and 40 iterations already reproduce it
+JULIA_W_LAMBDA_ITERS40 = [-1.6234032442522946e-17, 6.3811804209833906e-18, 3.1676133509435527e-17]
+# simplex_regression(mu, q, cost, 0.1; iters=256) -- Optim.jl's L-BFGS
+JULIA_SIMPLEX_REGRESSION_LAMBDA = [0.49999999846103294, 0.29999998369696451, 0.20000001784200261]
 # fmt: on
 
 
@@ -66,3 +84,27 @@ def test_sinkhorn_barycenter_matches_julia():
     np.testing.assert_allclose(p, JULIA_BARYCENTER_EPS01_ITERS256, rtol=1e-12)
     p2 = sinkhorn_barycenter([0.25, 0.75], mu[:, :2], cost, 0.05, iters=64)
     np.testing.assert_allclose(p2, JULIA_BARYCENTER2_EPS005_ITERS64, rtol=1e-12)
+
+
+def test_backward_pass_matches_julia():
+    G = _grid3()
+    cost = ground_cost(G, "shortest_path")
+    mu = _mu(G)
+    q = np.array(JULIA_BARYCENTER_EPS01_ITERS256)
+    alpha = np.array([0.2, -0.1, 0.3])
+    assert barycentric_loss(alpha, mu, q, cost, 0.1, iters=40) == pytest.approx(
+        JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40, rel=1e-12
+    )
+    np.testing.assert_allclose(loss_gradient(alpha, mu, q, cost, 0.1, iters=40), JULIA_LOSS_GRADIENT_ALPHA_ITERS40, rtol=1e-10)
+    _, w = sinkhorn_differentiate([0.5, 0.3, 0.2], mu, q, cost, 0.1, 40)
+    np.testing.assert_allclose(w, JULIA_W_LAMBDA_ITERS40, atol=1e-14)
+
+
+def test_simplex_regression_matches_julia_to_optimizer_tolerance():
+    # Optim.jl and scipy take different L-BFGS paths, so agreement is to the
+    # optimizers' tolerance, not round-off.
+    G = _grid3()
+    cost = ground_cost(G, "shortest_path")
+    mu = _mu(G)
+    lam_hat = simplex_regression(mu, np.array(JULIA_BARYCENTER_EPS01_ITERS256), cost, 0.1, iters=256)
+    np.testing.assert_allclose(lam_hat, JULIA_SIMPLEX_REGRESSION_LAMBDA, atol=1e-5)
