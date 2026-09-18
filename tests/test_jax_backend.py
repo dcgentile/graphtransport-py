@@ -85,3 +85,68 @@ def test_agrees_with_torch_backend(problem):
     p_jax = np.asarray(jax_backend.sinkhorn_barycenter(lam, jnp.asarray(mu), cost, 0.1, iters=128))
     p_torch = torch_backend.sinkhorn_barycenter(lam, torch.tensor(mu), cost, 0.1, iters=128).numpy()
     np.testing.assert_allclose(p_jax, p_torch, rtol=1e-12)
+
+
+# The backend rejects what the numpy implementation rejects, with the same messages.
+
+
+def _underflow_problem():
+    n = 9
+    cost = np.abs(np.subtract.outer(np.arange(n), np.arange(n))) ** 2 / 64.0
+    return cost, np.eye(n)[:, [0, 8]]  # two point masses at opposite ends
+
+
+def test_kernel_underflow_raises_when_eager_and_passes_nan_through_jit():
+    cost, mu = _underflow_problem()
+    lam = jnp.array([0.5, 0.5])
+    assert jnp.isfinite(jax_backend.sinkhorn_barycenter(lam, mu, cost, 0.01)).all()
+    with pytest.raises(FloatingPointError, match="larger epsilon"):
+        jax_backend.sinkhorn_barycenter(lam, mu, cost, 0.001)
+    # a traced value cannot be inspected, so under jit the nan is returned (documented)
+    jitted = jax.jit(lambda c: jax_backend.sinkhorn_barycenter(c, mu, cost, 0.001))
+    assert jnp.isnan(jitted(lam)).all()
+
+
+@pytest.mark.parametrize("epsilon", [0.0, -0.5, float("inf"), float("nan")])
+def test_rejects_bad_epsilon(problem, epsilon):
+    cost, mu = problem
+    with pytest.raises(ValueError, match="epsilon"):
+        jax_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, epsilon)
+
+
+def test_epsilon_may_be_traced(problem):
+    cost, mu = problem
+    lam = jnp.array([0.5, 0.3, 0.2])
+    f = lambda e: jax_backend.sinkhorn_barycenter(lam, mu, cost, e, iters=16)[0]  # noqa: E731
+    assert jnp.isfinite(jax.grad(f)(0.1))
+    np.testing.assert_allclose(jax.jit(f)(0.1), f(0.1), rtol=1e-12)
+
+
+@pytest.mark.parametrize("iters", [0, 1])
+def test_rejects_an_iteration_budget_that_runs_no_iterations(problem, iters):
+    cost, mu = problem
+    with pytest.raises(ValueError, match="iters"):
+        jax_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=iters)
+
+
+def test_rejects_traced_iters(problem):
+    cost, mu = problem
+    f = jax.jit(lambda n: jax_backend.sinkhorn_barycenter(jnp.array([0.5, 0.3, 0.2]), mu, cost, 0.1, iters=n))
+    with pytest.raises(TypeError, match="Python int"):
+        f(8)
+
+
+def test_rejects_misshapen_inputs(problem):
+    cost, mu = problem
+    with pytest.raises(ValueError, match=r"shape \(n, S\)"):
+        jax_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu.T, cost, 0.1)
+    with pytest.raises(ValueError, match="one weight per measure"):
+        jax_backend.sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.1)
+
+
+def test_integer_measures_are_promoted(problem):
+    cost, _ = problem
+    lam = [0.5, 0.3, 0.2]
+    diracs = np.eye(9, dtype=int)[:, [0, 4, 8]]
+    p = jax_backend.sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64)
+    np.testing.assert_allclose(np.asarray(p), sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64), rtol=1e-12)

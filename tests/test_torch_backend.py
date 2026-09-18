@@ -70,3 +70,68 @@ def test_float32_inputs_run_in_float32(problem):
     p = torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], torch.tensor(mu, dtype=torch.float32), cost, 0.1, iters=64)
     assert p.dtype == torch.float32
     assert float(p.sum()) == pytest.approx(1.0, abs=1e-4)
+
+
+# The backend rejects what the numpy implementation rejects, with the same messages.
+
+
+def _underflow_problem():
+    n = 9
+    cost = np.abs(np.subtract.outer(np.arange(n), np.arange(n))) ** 2 / 64.0
+    return cost, np.eye(n)[:, [0, 8]]  # two point masses at opposite ends
+
+
+def test_kernel_underflow_raises_unless_check_is_off():
+    cost, mu = _underflow_problem()
+    assert torch.isfinite(torch_backend.sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.01)).all()
+    with pytest.raises(FloatingPointError, match="larger epsilon"):
+        torch_backend.sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.001)
+    assert torch.isnan(torch_backend.sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.001, check=False)).all()
+
+
+@pytest.mark.parametrize("epsilon", [0.0, -0.5, float("inf"), float("nan")])
+def test_rejects_bad_epsilon(problem, epsilon):
+    cost, mu = problem
+    with pytest.raises(ValueError, match="epsilon"):
+        torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, epsilon)
+
+
+def test_epsilon_may_be_a_tensor_and_is_differentiable(problem):
+    cost, mu = problem
+    eps = torch.tensor(0.1, dtype=torch.float64, requires_grad=True)
+    torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, eps, iters=16)[0].backward()
+    assert torch.isfinite(eps.grad)
+
+
+@pytest.mark.parametrize("iters", [0, 1])
+def test_rejects_an_iteration_budget_that_runs_no_iterations(problem, iters):
+    cost, mu = problem
+    with pytest.raises(ValueError, match="iters"):
+        torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=iters)
+
+
+def test_rejects_misshapen_inputs(problem):
+    cost, mu = problem
+    with pytest.raises(ValueError, match=r"shape \(n, S\)"):
+        torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], mu.T, cost, 0.1)
+    with pytest.raises(ValueError, match="one weight per measure"):
+        torch_backend.sinkhorn_barycenter([0.5, 0.5], mu, cost, 0.1)
+
+
+def test_non_floating_inputs_are_promoted_to_float64(problem):
+    cost, mu = problem
+    lam = [0.5, 0.3, 0.2]
+    reference = sinkhorn_barycenter(lam, mu, cost, 0.1, iters=64)
+    from_lists = torch_backend.sinkhorn_barycenter(lam, mu.tolist(), cost.tolist(), 0.1, iters=64)
+    assert from_lists.dtype == torch.float64
+    np.testing.assert_allclose(from_lists.numpy(), reference, rtol=1e-12)
+    diracs = np.eye(9, dtype=int)[:, [0, 4, 8]]
+    p = torch_backend.sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64)
+    np.testing.assert_allclose(p.numpy(), sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64), rtol=1e-12)
+
+
+def test_float32_tensors_stay_float32(problem):
+    cost, mu = problem
+    p = torch_backend.sinkhorn_barycenter([0.5, 0.3, 0.2], torch.tensor(mu, dtype=torch.float32), cost, 0.1, iters=64)
+    assert p.dtype == torch.float32
+    np.testing.assert_allclose(p.numpy(), sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=64), rtol=1e-4)
