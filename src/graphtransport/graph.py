@@ -16,7 +16,14 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 
-from graphtransport.means import GeometricMean
+from graphtransport.means import AdmissibleMean, GeometricMean
+
+
+def _check_mean(mean) -> AdmissibleMean:
+    if not isinstance(mean, AdmissibleMean):
+        hint = f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        raise TypeError(f"mean must be an AdmissibleMean instance, got {mean!r}{hint}")
+    return mean
 
 
 class MarkovGraph:
@@ -33,9 +40,16 @@ class MarkovGraph:
         D: (n, |E|) sparse incidence matrix with D @ m == graph_divergence(G, m)
             for any edge field m. D[x, e] = -Q[x, y], D[y, e] = Q[y, x] for
             edge e = (x, y).
+        mean: the mobility theta(s, t) of the transport metric on this graph
+            (GeometricMean() by default). The mean is part of the geometry,
+            like the graph itself, so it lives here rather than as a per-call
+            option: every geodesic, barycenter and analysis computed from the
+            same MarkovGraph uses the same metric, and a target synthesized on
+            one graph is analysed with the mean it was made with.
     """
 
-    def __init__(self, Q, pi, *, rtol: float = 1e-12):
+    def __init__(self, Q, pi, *, rtol: float = 1e-12, mean: AdmissibleMean | None = None):
+        self.mean: AdmissibleMean = GeometricMean() if mean is None else _check_mean(mean)
         Q = sparse.csr_matrix(np.asarray(Q, dtype=float))
         pi = np.asarray(pi, dtype=float)
         n = Q.shape[0]
@@ -77,8 +91,15 @@ class MarkovGraph:
             D_rows[2 * e + 1], D_cols[2 * e + 1], D_vals[2 * e + 1] = y, e, Q[y, x]
         self.D = sparse.csr_matrix((D_vals, (D_rows, D_cols)), shape=(n, num_edges))
 
+    def with_mean(self, mean: AdmissibleMean) -> "MarkovGraph":
+        """The same graph with a different mean; shares the cached matrices."""
+        other = object.__new__(type(self))
+        other.__dict__.update(self.__dict__)
+        other.mean = _check_mean(mean)
+        return other
+
     def __repr__(self) -> str:
-        return f"MarkovGraph(n={self.n}, |E|={self.E.shape[0]})"
+        return f"MarkovGraph(n={self.n}, |E|={self.E.shape[0]}, mean={self.mean!r})"
 
 
 def graph_gradient(G: MarkovGraph, phi) -> np.ndarray:
@@ -101,14 +122,17 @@ def graph_divergence(G: MarkovGraph, m) -> np.ndarray:
     return G.D @ m
 
 
-def metric_tensor(G: MarkovGraph, rho, mean=GeometricMean()) -> np.ndarray:
+def metric_tensor(G: MarkovGraph, rho, mean=None) -> np.ndarray:
     """theta[e] = mean(rho[x], rho[y]) for the oriented edge e = (x, y).
 
-    Does not include the edge weight kappa; the Riemannian inner product of
-    two potential gradients at rho is
+    `mean` defaults to the graph's own G.mean; any callable (s, t) -> theta
+    can be passed explicitly. Does not include the edge weight kappa; the
+    Riemannian inner product of two potential gradients at rho is
     <grad phi, grad psi>_rho = sum_e kappa[e] * theta[e] * (grad phi)[e] * (grad psi)[e].
     """
     rho = np.asarray(rho, dtype=float)
     if rho.shape[0] != G.n:
         raise ValueError(f"rho has length {rho.shape[0]}, expected {G.n}")
+    if mean is None:
+        mean = G.mean
     return mean(rho[G.E[:, 0]], rho[G.E[:, 1]])

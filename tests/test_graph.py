@@ -3,7 +3,7 @@ import pytest
 
 from graphtransport.chains import markov_chain_from_edge_list
 from graphtransport.graph import MarkovGraph, graph_divergence, graph_gradient, metric_tensor
-from graphtransport.means import GeometricMean
+from graphtransport.means import ArithmeticMean, GeometricMean, HarmonicMean
 
 geomean = GeometricMean()
 
@@ -67,3 +67,45 @@ def test_metric_tensor_accepts_custom_mean():
     theta = metric_tensor(G, rho, mean=lambda a, b: (a + b) / 2)
     for e, (x, y) in enumerate(G.E):
         assert theta[e] == pytest.approx((rho[x] + rho[y]) / 2)
+
+
+def test_default_mean_is_geometric():
+    G = _triangle()
+    assert G.mean == GeometricMean()
+    assert "GeometricMean" in repr(G)
+
+
+def test_mean_keyword_is_stored_and_used_by_metric_tensor():
+    Q, pi = markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)])
+    G = MarkovGraph(Q, pi, mean=HarmonicMean())
+    rho = np.array([1.0, 4.0, 9.0])
+    np.testing.assert_allclose(metric_tensor(G, rho), HarmonicMean()(rho[G.E[:, 0]], rho[G.E[:, 1]]))
+    # explicit override still wins
+    np.testing.assert_allclose(metric_tensor(G, rho, mean=geomean), geomean(rho[G.E[:, 0]], rho[G.E[:, 1]]))
+
+
+def test_with_mean_shares_cached_matrices():
+    G = _triangle()
+    H = G.with_mean(ArithmeticMean())
+    assert H.mean == ArithmeticMean()
+    assert G.mean == GeometricMean()  # original untouched
+    assert H.Q is G.Q and H.D is G.D and H.kappa is G.kappa and H.E is G.E and H.pi is G.pi
+    rho = np.array([1.0, 4.0, 9.0])
+    np.testing.assert_allclose(metric_tensor(H, rho), (rho[H.E[:, 0]] + rho[H.E[:, 1]]) / 2)
+
+
+def test_with_mean_preserves_subclass():
+    class Labelled(MarkovGraph):
+        pass
+
+    L = Labelled(*markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)]))
+    assert type(L.with_mean(HarmonicMean())) is Labelled
+
+
+def test_mean_must_be_an_instance():
+    Q, pi = markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)])
+    with pytest.raises(TypeError, match=r"did you mean HarmonicMean\(\)"):
+        MarkovGraph(Q, pi, mean=HarmonicMean)  # the class, not an instance
+    G = _triangle()
+    with pytest.raises(TypeError, match="AdmissibleMean instance"):
+        G.with_mean(lambda s, t: (s + t) / 2)
