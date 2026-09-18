@@ -19,6 +19,7 @@ from graphtransport.means import (
     LogarithmicMean,
     QuadLogMean,
 )
+from graphtransport.sinkhorn import graph_diameter, ground_cost
 
 __version__ = "0.1.0"
 
@@ -30,8 +31,10 @@ __all__ = [
     "LogarithmicMean",
     "MarkovGraph",
     "QuadLogMean",
+    "graph_diameter",
     "graph_divergence",
     "graph_gradient",
+    "ground_cost",
     "markov_chain_from_adjacency_matrix",
     "markov_chain_from_edge_list",
     "markov_chain_from_weight_matrix",
