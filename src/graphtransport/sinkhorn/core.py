@@ -3,11 +3,16 @@
 Ported from GraphTransportation.jl's sinkhorn/Sinkhorn.jl: the forward
 iteration of Bonneel, Peyré & Cuturi (2016), Algorithm 1 (iterative Bregman
 projections, Benamou et al. 2015). Measures are probability vectors on the
-nodes (not densities w.r.t. pi -- the unified API converts). The gradient
-with respect to the weights (the backward pass) is a separate step.
+nodes (not densities w.r.t. pi -- the unified API converts).
+
+`sinkhorn_differentiate` is the same paper's backward pass -- the gradient of
+the finite-iteration barycenter loss with respect to the weights -- and
+`simplex_regression` uses it to recover barycentric coordinates.
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 from scipy.optimize import minimize
@@ -143,9 +148,12 @@ def sinkhorn_differentiate(coords, measures, target, cost, epsilon: float, iters
         return p, None
 
     n, S = measures.shape
+    target = np.asarray(target, dtype=float)
+    if target.shape != (n,):
+        raise ValueError(f"target must be a probability vector of shape ({n},), got {target.shape}")
     w = np.zeros(S)
     r = np.zeros((n, S))
-    g = (p - np.asarray(target, dtype=float)) * p
+    g = (p - target) * p
     # Reverse over every forward iteration, slots iters-1 .. 1. Starting one
     # slot lower would drop the top term of the sum, which gives a wrong
     # gradient at small L (wrong sign at L = 2).
@@ -177,10 +185,16 @@ def loss_gradient(alpha, measures, target, cost, epsilon: float, *, iters: int =
     Note: the Julia original's argument order is (alpha, measures, cost,
     target, ...); here it is (alpha, measures, target, cost, ...) to match
     `barycentric_loss`."""
+    return _loss_and_gradient(alpha, measures, target, cost, epsilon, iters)[1]
+
+
+def _loss_and_gradient(alpha, measures, target, cost, epsilon: float, iters: int):
+    """(barycentric_loss, loss_gradient) at alpha from a single forward pass."""
+    if target is None:
+        raise ValueError("the regression loss needs a target")
     lam = logarithmic_change_of_variable(alpha)
-    _, w = sinkhorn_differentiate(lam, measures, target, cost, epsilon, iters)
-    assert w is not None
-    return lam * (w - lam @ w)
+    p, w = sinkhorn_differentiate(lam, measures, target, cost, epsilon, iters)
+    return sqeuc_loss(p, target), lam * (w - lam @ w)
 
 
 def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options) -> np.ndarray:
@@ -190,7 +204,8 @@ def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 2
     L-BFGS on alpha with lambda = softmax(alpha), using the analytic gradient
     from `sinkhorn_differentiate`. alpha0 = 0 (the default) is the paper's
     lambda0 = 1/S. Extra keyword arguments override scipy's L-BFGS-B
-    `options`. Returns lambda-hat on the simplex.
+    `options`. Returns lambda-hat on the simplex, and warns if L-BFGS-B ran
+    out of iterations or evaluations before converging.
 
     The objective is O(1e-10) near a recoverable optimum, below L-BFGS-B's
     default absolute `ftol` (2.2e-9), so by default the stopping test is
@@ -200,11 +215,23 @@ def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 2
     S = measures.shape[1]
     alpha0 = np.zeros(S) if alpha0 is None else np.asarray(alpha0, dtype=float)
     options = {"ftol": 0.0, "gtol": 1e-12, "maxiter": 1000, **minimize_options}
+    # One function returns loss and gradient (jac=True), so each point costs a
+    # single Sinkhorn forward pass rather than two.
     result = minimize(
-        lambda a: barycentric_loss(a, measures, target, cost, epsilon, iters=iters),
+        _loss_and_gradient,
         alpha0,
-        jac=lambda a: loss_gradient(a, measures, target, cost, epsilon, iters=iters),
+        args=(measures, target, cost, epsilon, iters),
+        jac=True,
         method="L-BFGS-B",
         options=options,
     )
+    # Only the budget running out is reported: with ftol=0 L-BFGS-B routinely
+    # ends on "abnormal termination in line search" at a good optimum, so
+    # result.success is not a usable convergence test here.
+    if result.status == 1:
+        warnings.warn(
+            f"simplex_regression: L-BFGS-B stopped at its iteration/evaluation limit after {result.nit} "
+            f"iterations (loss {result.fun:.3e}); the weights may not have converged. Raise maxiter.",
+            stacklevel=2,
+        )
     return logarithmic_change_of_variable(result.x)

@@ -105,3 +105,42 @@ def test_simplex_regression_random_problem_recovers_weights(grid3):
     target = sinkhorn_barycenter(lam_true, M, cost, 0.1, iters=256)
     lam_hat = simplex_regression(M, target, cost, 0.1, iters=256)
     np.testing.assert_allclose(lam_hat, lam_true, atol=2e-2)
+
+
+def test_regression_runs_one_forward_pass_per_evaluation(grid3, monkeypatch):
+    from graphtransport.sinkhorn import core
+
+    _, cost, mu = grid3
+    target = sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=64)
+    calls = []
+    forward = core._sinkhorn_forward
+    monkeypatch.setattr(core, "_sinkhorn_forward", lambda *a: calls.append(1) or forward(*a))
+    evaluations = []
+    real_minimize = core.minimize
+
+    def counting_minimize(fun, *args, **kwargs):
+        result = real_minimize(fun, *args, **kwargs)
+        evaluations.append(result.nfev)
+        return result
+
+    monkeypatch.setattr(core, "minimize", counting_minimize)
+    simplex_regression(mu, target, cost, 0.1, iters=64)
+    assert len(calls) == evaluations[0]
+
+
+@pytest.mark.filterwarnings("error")
+def test_regression_warns_only_when_the_budget_runs_out(grid3):
+    _, cost, mu = grid3
+    target = sinkhorn_barycenter([0.5, 0.3, 0.2], mu, cost, 0.1, iters=64)
+    simplex_regression(mu, target, cost, 0.1, iters=64)  # converges: no warning
+    with pytest.warns(UserWarning, match="iteration/evaluation limit"):
+        simplex_regression(mu, target, cost, 0.1, iters=64, maxiter=2)
+
+
+def test_target_shape_is_checked(grid3):
+    _, cost, mu = grid3
+    for bad in (0.1, np.ones(1), np.ones((9, 1))):
+        with pytest.raises(ValueError, match="target must be"):
+            sinkhorn_differentiate([0.5, 0.3, 0.2], mu, bad, cost, 0.1, 16)
+    with pytest.raises(ValueError, match="needs a target"):
+        loss_gradient(np.zeros(3), mu, None, cost, 0.1)
