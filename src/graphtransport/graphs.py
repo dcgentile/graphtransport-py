@@ -92,15 +92,18 @@ def weighted_hypercube_markov_chain(rng=None):
 
 def wheel_markov_chain():
     """An 8-cycle (nodes 0-7) with a hub (node 8) joined to the odd nodes
-    1, 3, 5, 7 (Julia's even nodes 2, 4, 6, 8). This is what the Julia
-    package calls ``grid_markov_chain()`` with no argument."""
+    1, 3, 5, 7 (Julia's even nodes 2, 4, 6, 8): 12 edges, hub degree 4. Not
+    the graph-theoretic wheel, whose hub joins every rim node. This is what
+    the Julia package calls ``grid_markov_chain()`` with no argument."""
     return markov_chain_from_edge_list(
         [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0), (8, 1), (8, 3), (8, 5), (8, 7)]
     )
 
 
 def grid_markov_chain(n: int):
-    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbour edges)."""
+    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbour edges), n >= 2."""
+    if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 2:
+        raise ValueError(f"grid_markov_chain needs an integer n >= 2, got {n!r}")
     edges = []
     for i in range(n * n):
         if (i + 1) % n != 0:

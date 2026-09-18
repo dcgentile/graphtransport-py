@@ -76,3 +76,9 @@ def test_weighted_hypercube_is_nonuniform_and_seedable():
     MarkovGraph(Q1, pi1)
     _, pi3 = weighted_hypercube_markov_chain(rng=1)
     assert not np.allclose(pi1, pi3)
+
+
+@pytest.mark.parametrize("n", [1, 0, -3, 3.0, True])
+def test_grid_rejects_bad_n(n):
+    with pytest.raises(ValueError, match="integer n >= 2"):
+        grid_markov_chain(n)
