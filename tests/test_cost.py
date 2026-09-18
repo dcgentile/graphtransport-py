@@ -65,13 +65,13 @@ def test_diffusion_cost_properties():
     assert np.all(np.isfinite(C))
     assert C.max() == pytest.approx(1.0)
     off_diag = C[~np.eye(9, dtype=bool)]
-    assert np.all(off_diag > 0)  # t = diameter: no pair at zero distance
+    assert np.all(off_diag > 0)
 
 
 def test_diffusion_cost_matches_definition_at_explicit_t():
     G = _grid(3)
     t = 2
-    Qt = np.linalg.matrix_power(G.Q.toarray(), t)
+    Qt = np.linalg.matrix_power((np.eye(9) + G.Q.toarray()) / 2, t)  # default laziness 1/2
     expected = np.zeros((9, 9))
     for i in range(9):
         for j in range(9):
@@ -94,3 +94,66 @@ def test_ground_cost_disconnected_raises():
 def test_ground_cost_bad_rule_raises():
     with pytest.raises(ValueError, match="rule"):
         ground_cost(_graph(TRIANGLE), "euclidean")
+
+
+PATH3 = [(0, 1), (1, 2)]
+CYCLE4 = [(0, 1), (1, 2), (2, 3), (0, 3)]
+STAR = [(0, 1), (0, 2), (0, 3)]
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("edges", [PATH3, CYCLE4, STAR], ids=["path3", "cycle4", "star"])
+def test_lazy_diffusion_cost_separates_nodes_with_the_same_neighbourhood(edges):
+    G = _graph(edges)
+    for t in (1, 2, 5):
+        C = ground_cost(G, "diffusion", t=t)
+        assert np.all(C[~np.eye(G.n, dtype=bool)] > 0)
+
+
+@pytest.mark.parametrize("edges", [PATH3, CYCLE4, STAR], ids=["path3", "cycle4", "star"])
+def test_plain_walk_diffusion_cost_warns_when_it_collapses_nodes(edges):
+    with pytest.warns(UserWarning, match="zero between"):
+        C = ground_cost(_graph(edges), "diffusion", laziness=0.0)
+    assert C[1 if edges is STAR else 0, 3 if edges is STAR else 2] == 0.0
+
+
+def test_laziness_zero_is_the_plain_walk():
+    G = _grid(3)
+    Qt = np.linalg.matrix_power(G.Q.toarray(), 3)
+    expected = (((Qt[:, None, :] - Qt[None, :, :]) ** 2) / G.pi).sum(axis=-1)
+    np.testing.assert_allclose(ground_cost(G, "diffusion", t=3, laziness=0.0, normalize=False), expected)
+
+
+def test_identically_zero_diffusion_cost_raises():
+    from graphtransport import markov_chain_from_weight_matrix
+
+    G = MarkovGraph(*markov_chain_from_weight_matrix(np.ones((4, 4))))  # Q = J/4, rank one
+    with pytest.raises(ValueError, match="identically zero"):
+        ground_cost(G, "diffusion", laziness=0.0)
+    with pytest.raises(ValueError, match="identically zero"):
+        ground_cost(_graph([(0, 1)]), "diffusion")  # two nodes: lambda = -1 -> 0 at laziness 1/2
+    assert ground_cost(_graph([(0, 1)]), "diffusion", laziness=0.75)[0, 1] == pytest.approx(1.0)
+
+
+def test_diffusion_cost_with_explicit_t_rejects_disconnected_graph():
+    with pytest.raises(ValueError, match="disconnected"):
+        ground_cost(_graph(DISCONNECTED), "diffusion", t=2)
+
+
+@pytest.mark.parametrize("t", [0, -1, 2.0, True])
+def test_diffusion_cost_rejects_bad_t(t):
+    with pytest.raises(ValueError, match="integer >= 1"):
+        ground_cost(_grid(3), "diffusion", t=t)
+
+
+@pytest.mark.parametrize("laziness", [-0.1, 1.0])
+def test_diffusion_cost_rejects_bad_laziness(laziness):
+    with pytest.raises(ValueError, match="laziness"):
+        ground_cost(_grid(3), "diffusion", laziness=laziness)
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("rule", ["shortest_path", "diffusion"])
+def test_single_node_graph_has_zero_cost(rule):
+    G = MarkovGraph(np.array([[1.0]]), np.array([1.0]))
+    np.testing.assert_array_equal(ground_cost(G, rule, t=1), [[0.0]])
