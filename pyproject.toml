@@ -14,5 +14,8 @@ dev = ["pytest"]
 torch = ["torch"]
 jax = ["jax"]
 
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/graphtransport"]

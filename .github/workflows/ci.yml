@@ -18,3 +18,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest -q
+
+  # The torch and jax tests importorskip their framework, so the job above
+  # skips them all. This one installs both (CPU wheels) and fails if any
+  # backend test was skipped.
+  test-backends:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,torch,jax]"
+      - run: pytest -q -rs tests/test_torch_backend.py tests/test_jax_backend.py | tee backends.log
+        shell: bash  # explicit bash runs with pipefail, so a pytest failure is not hidden by tee
+      - run: "! grep -q SKIPPED backends.log"

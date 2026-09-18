@@ -20,9 +20,34 @@ from scipy.optimize import minimize
 
 def regularize_cost(cost, epsilon: float) -> np.ndarray:
     """The Gibbs kernel K = exp(-cost / epsilon), elementwise."""
+    _check_epsilon(epsilon)
+    return np.exp(-np.asarray(cost, dtype=float) / epsilon)
+
+
+# Input checks shared with the torch and jax backends, so that every
+# implementation rejects the same inputs with the same message. They only
+# look at Python scalars and static shapes, never at array values.
+
+
+def _check_epsilon(epsilon) -> None:
     if not (np.isfinite(epsilon) and epsilon > 0):
         raise ValueError(f"epsilon must be a positive finite number, got {epsilon!r}")
-    return np.exp(-np.asarray(cost, dtype=float) / epsilon)
+
+
+def _check_problem(measures_shape, n: int, coords_shape, iters) -> None:
+    measures_shape, coords_shape = tuple(measures_shape), tuple(coords_shape)
+    if len(measures_shape) != 2 or measures_shape[0] != n:
+        raise ValueError(
+            f"measures must have shape (n, S) with one column per measure and n = {n} nodes, "
+            f"got {measures_shape}"
+        )
+    S = measures_shape[1]
+    if coords_shape != (S,):
+        raise ValueError(f"coords must have one weight per measure ({S}), got shape {coords_shape}")
+    if isinstance(iters, bool) or not isinstance(iters, (int, np.integer)):
+        raise TypeError(f"iters must be a Python int, got {type(iters).__name__}")
+    if iters < 2:
+        raise ValueError(f"iters must be at least 2 (iters slots give iters - 1 iterations), got {iters}")
 
 
 def _underflow_error(what: str) -> FloatingPointError:
@@ -52,16 +77,8 @@ def _sinkhorn_forward(coords, measures, K, iters: int):
     """
     coords = np.asarray(coords, dtype=float)
     measures = np.asarray(measures, dtype=float)
-    if measures.ndim != 2 or measures.shape[0] != K.shape[0]:
-        raise ValueError(
-            f"measures must have shape (n, S) with one column per measure and n = {K.shape[0]} nodes, "
-            f"got {measures.shape}"
-        )
+    _check_problem(measures.shape, K.shape[0], coords.shape, iters)
     n, S = measures.shape
-    if coords.shape != (S,):
-        raise ValueError(f"coords must have one weight per measure ({S}), got shape {coords.shape}")
-    if iters < 2:
-        raise ValueError(f"iters must be at least 2 (iters slots give iters - 1 iterations), got {iters}")
     b = np.ones((n, S, iters))
     phi = np.empty((n, S, iters))
     p = np.full(n, 1.0 / n)
