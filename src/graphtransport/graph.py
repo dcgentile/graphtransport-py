@@ -19,6 +19,13 @@ from scipy import sparse
 from graphtransport.means import AdmissibleMean, GeometricMean
 
 
+def _check_mean(mean) -> AdmissibleMean:
+    if not isinstance(mean, AdmissibleMean):
+        hint = f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        raise TypeError(f"mean must be an AdmissibleMean instance, got {mean!r}{hint}")
+    return mean
+
+
 class MarkovGraph:
     """Graph primitive: an undirected graph plus a reversible Markov chain on it.
 
@@ -42,7 +49,7 @@ class MarkovGraph:
     """
 
     def __init__(self, Q, pi, *, rtol: float = 1e-12, mean: AdmissibleMean | None = None):
-        self.mean: AdmissibleMean = GeometricMean() if mean is None else mean
+        self.mean: AdmissibleMean = GeometricMean() if mean is None else _check_mean(mean)
         Q = sparse.csr_matrix(np.asarray(Q, dtype=float))
         pi = np.asarray(pi, dtype=float)
         n = Q.shape[0]
@@ -86,9 +93,9 @@ class MarkovGraph:
 
     def with_mean(self, mean: AdmissibleMean) -> "MarkovGraph":
         """The same graph with a different mean; shares the cached matrices."""
-        other = object.__new__(MarkovGraph)
+        other = object.__new__(type(self))
         other.__dict__.update(self.__dict__)
-        other.mean = mean
+        other.mean = _check_mean(mean)
         return other
 
     def __repr__(self) -> str:

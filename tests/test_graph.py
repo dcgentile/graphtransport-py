@@ -92,3 +92,20 @@ def test_with_mean_shares_cached_matrices():
     assert H.Q is G.Q and H.D is G.D and H.kappa is G.kappa and H.E is G.E and H.pi is G.pi
     rho = np.array([1.0, 4.0, 9.0])
     np.testing.assert_allclose(metric_tensor(H, rho), (rho[H.E[:, 0]] + rho[H.E[:, 1]]) / 2)
+
+
+def test_with_mean_preserves_subclass():
+    class Labelled(MarkovGraph):
+        pass
+
+    L = Labelled(*markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)]))
+    assert type(L.with_mean(HarmonicMean())) is Labelled
+
+
+def test_mean_must_be_an_instance():
+    Q, pi = markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)])
+    with pytest.raises(TypeError, match=r"did you mean HarmonicMean\(\)"):
+        MarkovGraph(Q, pi, mean=HarmonicMean)  # the class, not an instance
+    G = _triangle()
+    with pytest.raises(TypeError, match="AdmissibleMean instance"):
+        G.with_mean(lambda s, t: (s + t) / 2)
