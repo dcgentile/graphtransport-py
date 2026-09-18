@@ -2,14 +2,23 @@ import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
-jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp  # noqa: E402
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list  # noqa: E402
 from graphtransport.sinkhorn import bfs_hops, ground_cost, sinkhorn_barycenter, sinkhorn_differentiate  # noqa: E402
 from graphtransport.sinkhorn.backends import jax_backend  # noqa: E402
-from test_julia_reference import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
+from julia_values import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def x64():
+    """Run each test in float64 so results compare with numpy to rounding
+    error. Scoped to the test, not set globally at import: the flag is
+    process-wide and would otherwise leak into every jax test collected after
+    this file. `test_float32_default_mode` covers JAX's default."""
+    with jax.enable_x64(True):
+        yield
 
 
 def _grid3():
@@ -150,3 +159,15 @@ def test_integer_measures_are_promoted(problem):
     diracs = np.eye(9, dtype=int)[:, [0, 4, 8]]
     p = jax_backend.sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64)
     np.testing.assert_allclose(np.asarray(p), sinkhorn_barycenter(lam, diracs, cost, 0.5, iters=64), rtol=1e-12)
+
+
+def test_float32_default_mode(problem):
+    # What a user gets without opting in to x64: float64 inputs are computed in float32.
+    cost, mu = problem
+    lam = np.array([0.5, 0.3, 0.2])
+    with jax.enable_x64(False):
+        p = jax_backend.sinkhorn_barycenter(lam, mu, cost, 0.1, iters=256)
+        g = jax.grad(lambda c: jax_backend.sinkhorn_barycenter(c, mu, cost, 0.1, iters=60)[0])(jnp.asarray(lam))
+    assert p.dtype == jnp.float32 and g.dtype == jnp.float32
+    np.testing.assert_allclose(np.asarray(p), sinkhorn_barycenter(lam, mu, cost, 0.1, iters=256), rtol=1e-4)
+    assert np.all(np.isfinite(np.asarray(g)))

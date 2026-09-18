@@ -6,7 +6,7 @@ torch = pytest.importorskip("torch")
 from graphtransport import MarkovGraph, markov_chain_from_edge_list  # noqa: E402
 from graphtransport.sinkhorn import bfs_hops, ground_cost, sinkhorn_barycenter, sinkhorn_differentiate  # noqa: E402
 from graphtransport.sinkhorn.backends import torch_backend  # noqa: E402
-from test_julia_reference import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
+from julia_values import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
 
 
 def _grid3():
