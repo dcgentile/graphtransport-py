@@ -53,7 +53,8 @@ def test_reference_measures_match_julia():
 
 
 def test_diffusion_ground_cost_matches_julia():
-    C = ground_cost(_grid3(), "diffusion")
+    # Julia uses the plain walk; this package defaults to the lazy walk (see ground_cost).
+    C = ground_cost(_grid3(), "diffusion", laziness=0.0)
     np.testing.assert_allclose(C[0], JULIA_DIFFUSION_COST_ROW0, rtol=1e-12, atol=1e-15)
 
 
