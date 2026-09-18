@@ -106,3 +106,95 @@ def test_analysis_rejects_gram_matrix_options(setup):
         analysis(G, refs[0], refs, cost=cost, epsilon=0.1, return_system=True)
     with pytest.raises(ValueError, match="not a Gram-matrix method"):
         analysis(G, refs[0], refs, cost=cost, epsilon=0.1, compute_condition=True)
+
+
+# Input validation at the entry points (method-agnostic).
+
+KW = {"method": "sinkhorn", "epsilon": 0.1}
+
+
+@pytest.mark.parametrize(
+    "lam, message",
+    [
+        ([1, 1, 1], "sum to 1"),
+        ([0, 0, 0], "sum to 1"),
+        ([2, -1, 0], "nonnegative"),
+        ([0.5, np.nan, 0.5], "finite"),
+        ([0.5, 0.5], "one weight per reference"),
+    ],
+)
+def test_barycenter_rejects_weights_off_the_simplex(setup, lam, message):
+    G, cost, _, refs = setup
+    with pytest.raises(ValueError, match=message):
+        barycenter(G, refs, lam, cost=cost, **KW)
+
+
+def test_densities_must_integrate_to_one_against_pi(setup):
+    G, cost, mu, refs = setup
+    with pytest.raises(ValueError, match="rhoA is not a probability density"):
+        geodesic(G, 2 * refs[0], refs[1], cost=cost, **KW)
+    with pytest.raises(ValueError, match=r"refs\[1\] is not a probability density"):
+        barycenter(G, [refs[0], 2 * refs[1], refs[2]], [0.5, 0.3, 0.2], cost=cost, **KW)
+    # the classic mistake: a probability vector where a density is expected
+    with pytest.raises(ValueError, match="mu / G.pi"):
+        analysis(G, mu[:, 0], refs, cost=cost, **KW)
+    with pytest.raises(ValueError, match="negative"):
+        transport_cost(G, refs[0] - 2 * refs[0].max() * np.eye(9)[0], refs[1], cost=cost, **KW)
+    with pytest.raises(ValueError, match=r"shape \(9,\)"):
+        geodesic(G, refs[0][:5], refs[1], cost=cost, **KW)
+
+
+def test_round_off_negatives_are_clipped(setup):
+    G, cost, _, refs = setup
+    mu = np.array([0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0, 0.0])
+    noisy = mu / G.pi
+    noisy[-1] = -1e-13  # what an upstream solver leaves in place of an exact zero
+    nu, _, _ = barycenter(G, [noisy, refs[1]], [0.5, 0.5], cost=cost, **KW)
+    assert np.all(np.isfinite(nu))
+
+
+def test_refs_must_be_a_sequence_of_densities_not_a_matrix(setup):
+    G, cost, _, refs = setup
+    for matrix in (np.column_stack(refs), np.vstack(refs)):
+        with pytest.raises(ValueError, match="sequence of densities"):
+            barycenter(G, matrix, [0.5, 0.3, 0.2], cost=cost, **KW)
+        with pytest.raises(ValueError, match="sequence of densities"):
+            analysis(G, refs[0], matrix, cost=cost, **KW)
+    with pytest.raises(ValueError, match="at least one"):
+        barycenter(G, [], [], cost=cost, **KW)
+
+
+@pytest.mark.parametrize("N", [0, -2, 4.0, True])
+def test_geodesic_rejects_bad_n(setup, N):
+    G, cost, _, refs = setup
+    with pytest.raises(ValueError, match="N must be"):
+        geodesic(G, refs[0], refs[1], N=N, cost=cost, **KW)
+
+
+def test_geodesic_status_reports_whether_the_plan_converged(setup):
+    G, cost, _, refs = setup
+    assert geodesic(G, refs[0], refs[1], N=2, cost=cost, **KW).status == "converged"
+    assert geodesic(G, refs[0], refs[1], N=2, cost=cost, iters=3, **KW).status == "iteration_limit"
+    assert geodesic(G, refs[0], refs[1], N=2, cost=cost, iters=3, tol=1.0, **KW).status == "converged"
+
+
+def test_transport_cost_solves_one_plan_and_warns_if_unconverged(setup, monkeypatch):
+    from graphtransport import api
+
+    G, cost, _, refs = setup
+    barycenters = []
+    monkeypatch.setattr(api, "build_geodesic", lambda *a, **k: barycenters.append(1))
+    w = transport_cost(G, refs[0], refs[1], cost=cost, N=7, **KW)  # N is accepted and ignored
+    assert not barycenters
+    monkeypatch.undo()
+    assert w == pytest.approx(np.sqrt(geodesic(G, refs[0], refs[1], cost=cost, **KW).W2), rel=1e-14)
+    with pytest.warns(UserWarning, match="marginal error"):
+        transport_cost(G, refs[0], refs[1], cost=cost, iters=3, **KW)
+
+
+def test_geodesic_path_matches_columnwise_barycenters(setup):
+    G, cost, _, refs = setup
+    sol = geodesic(G, refs[0], refs[1], N=4, cost=cost, **KW)
+    for k, t in enumerate(np.linspace(0, 1, 5)):
+        nu, _, _ = barycenter(G, refs[:2], [1 - t, t], cost=cost, **KW)
+        np.testing.assert_allclose(sol.rho[:, k], nu, rtol=1e-12)
