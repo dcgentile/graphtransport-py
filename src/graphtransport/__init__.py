@@ -4,6 +4,7 @@ Python port of GraphTransportation.jl. Modules are added incrementally; see
 README.md for the porting plan and current status.
 """
 
+from graphtransport.api import GeodesicSolution, analysis, barycenter, geodesic, transport_cost
 from graphtransport.chains import (
     markov_chain_from_adjacency_matrix,
     markov_chain_from_edge_list,
@@ -26,11 +27,16 @@ __version__ = "0.1.0"
 __all__ = [
     "AdmissibleMean",
     "ArithmeticMean",
+    "GeodesicSolution",
     "GeometricMean",
     "HarmonicMean",
     "LogarithmicMean",
     "MarkovGraph",
     "QuadLogMean",
+    "analysis",
+    "barycenter",
+    "geodesic",
+    "transport_cost",
     "graph_diameter",
     "graph_divergence",
     "graph_gradient",

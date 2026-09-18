@@ -21,6 +21,12 @@ from julia_values import (
     JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40,
     JULIA_W_LAMBDA_ITERS40,
     JULIA_SIMPLEX_REGRESSION_LAMBDA,
+    JULIA_API_BARY_NU,
+    JULIA_API_BARY_J,
+    JULIA_API_GEO_W2,
+    JULIA_API_GEO_RHO_MID,
+    JULIA_API_TRANSPORT_COST,
+    JULIA_API_ANALYSIS_LAMBDA,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
@@ -82,6 +88,30 @@ def test_backward_pass_matches_julia():
     np.testing.assert_allclose(loss_gradient(alpha, mu, q, cost, 0.1, iters=40), JULIA_LOSS_GRADIENT_ALPHA_ITERS40, rtol=1e-10)
     _, w = sinkhorn_differentiate([0.5, 0.3, 0.2], mu, q, cost, 0.1, 40)
     np.testing.assert_allclose(w, JULIA_W_LAMBDA_ITERS40, atol=1e-14)
+
+
+def test_unified_api_matches_julia():
+    from graphtransport import analysis, barycenter, geodesic, transport_cost
+
+    G = _grid3()
+    cost = ground_cost(G, "shortest_path")
+    mu = _mu(G)
+    refs = [mu[:, s] / G.pi for s in range(3)]
+
+    nu, J, _ = barycenter(G, refs, [0.5, 0.3, 0.2], method="sinkhorn", cost=cost, epsilon=0.1, iters=256)
+    np.testing.assert_allclose(nu, JULIA_API_BARY_NU, rtol=1e-12)
+    assert J == pytest.approx(JULIA_API_BARY_J, rel=1e-12)
+
+    sol = geodesic(G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1, N=4, iters=256)
+    assert sol.rho.shape == (9, 5)
+    assert sol.W2 == pytest.approx(JULIA_API_GEO_W2, rel=1e-12)
+    np.testing.assert_allclose(sol.rho[:, 2], JULIA_API_GEO_RHO_MID, rtol=1e-12)
+    assert transport_cost(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=4, iters=256) == pytest.approx(
+        JULIA_API_TRANSPORT_COST, rel=1e-12
+    )
+
+    lam_hat = analysis(G, nu, refs, method="sinkhorn", cost=cost, epsilon=0.1, iters=256)
+    np.testing.assert_allclose(lam_hat, JULIA_API_ANALYSIS_LAMBDA, atol=1e-5)
 
 
 def test_simplex_regression_matches_julia_to_optimizer_tolerance():
