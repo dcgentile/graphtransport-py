@@ -62,3 +62,20 @@ def test_stationary_from_transition_recovers_known_pi():
     )
     pi_recovered = stationary_from_transition(Q)
     np.testing.assert_allclose(pi_recovered, pi_expected, atol=1e-8)
+
+
+@pytest.mark.parametrize(
+    "W, message",
+    [
+        ([[0.0, 1.0, 0.0], [3.0, 0.0, 1.0], [0.0, 1.0, 0.0]], "symmetric"),
+        ([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]], r"node\(s\) \[2\] have no edges"),
+        ([[0.0, -1.0], [-1.0, 0.0]], "nonnegative"),
+        ([[0.0, np.nan], [np.nan, 0.0]], "finite"),
+        (np.ones((2, 3)), "square"),
+    ],
+)
+def test_weight_matrix_is_validated_without_assert(W, message):
+    # These were a bare assert (stripped by python -O, which then returned a
+    # non-stationary pi), a row of nan, and a silently accepted negative weight.
+    with pytest.raises(ValueError, match=message):
+        markov_chain_from_weight_matrix(W)

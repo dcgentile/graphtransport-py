@@ -62,9 +62,11 @@ def ground_cost(
 
     Degeneracy of the diffusion distance. Spectrally D_t^2 = sum_j
     lambda_j^(2t) (psi_j(x) - psi_j(y))^2 over the eigenpairs of P, so D_t is
-    a metric only when P has no zero eigenvalue; otherwise those coordinates
-    drop out and D_t is a pseudo-metric, D_t(x, y) = 0 exactly when
-    (e_x - e_y) P^t = 0. For the plain walk this is common: two nodes with
+    a metric whenever P has no zero eigenvalue. A zero eigenvalue removes its
+    coordinates, and D_t(x, y) = 0 exactly when (e_x - e_y) P^t = 0, i.e.
+    e_x - e_y lies in the left kernel of P^t; that need not happen (the plain
+    walk on the 3x3 grid has a 3-dimensional kernel and still separates every
+    pair), but when it does D_t is only a pseudo-metric. For the plain walk this is common: two nodes with
     the same neighbourhood (the ends of a 3-path, opposite corners of a
     4-cycle, the leaves of a star) have identical rows of Q, hence zero cost
     for every t >= 1, and a Sinkhorn barycenter moves mass between them for

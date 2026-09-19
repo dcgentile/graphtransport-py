@@ -14,13 +14,22 @@ def markov_chain_from_weight_matrix(W) -> tuple[np.ndarray, np.ndarray]:
     """Weighted random-walk Markov chain from a non-negative symmetric weight matrix.
 
     Q[x, y] = W[x, y] / sum(W[x, :]), pi[x] = sum(W[x, :]) / sum(W).
-    Returns (Q, pi).
+    pi is stationary for Q (in fact Q is reversible) because W is symmetric,
+    so W must be square, finite, nonnegative and symmetric, and every node
+    needs positive total weight. Returns (Q, pi).
     """
     W = np.asarray(W, dtype=float)
+    if W.ndim != 2 or W.shape[0] != W.shape[1] or W.shape[0] == 0:
+        raise ValueError(f"W must be a nonempty square matrix, got shape {W.shape}")
+    if not np.all(np.isfinite(W)) or W.min() < 0:
+        raise ValueError("W must be finite and nonnegative")
+    if not np.allclose(W, W.T, rtol=1e-12, atol=1e-12 * np.abs(W).max()):
+        raise ValueError("W must be symmetric; otherwise pi = row sums / total is not stationary for Q")
     d = W.sum(axis=1)
+    if np.any(d == 0):
+        raise ValueError(f"node(s) {np.flatnonzero(d == 0).tolist()} have no edges; Q is undefined there")
     Q = W / d[:, np.newaxis]
     pi = d / d.sum()
-    assert np.allclose(Q.T @ pi, pi)
     return Q, pi
 
 
