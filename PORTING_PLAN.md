@@ -186,7 +186,7 @@ form"`, `@testset "SOCP with each admissible mean"`, `@testset
 13. **API dispatch extension: `method="socp"`.** Wire `geodesic_socp`/
     `barycenter_socp`/`analyze_socp` into the Phase 2 Step 8 dispatcher.
 
-## Phase 5 -- Shooting / Hamiltonian (self-contained, every mean, no solver dependency; now validated against Phase 4's SOCP)
+## Phase 5 -- Shooting / Hamiltonian (self-contained, every mean, no solver dependency; now validated against Phase 4's SOCP) -- DONE
 
 Source: `src/shooting/Hamiltonian.jl`, `src/shooting/ExpLog.jl`. Test
 targets: `@testset "Hamiltonian shooting..."`, `@testset "log_map by
@@ -219,7 +219,9 @@ now available), `@testset "analyze_shooting..."`.
     round trip per mean" (both methods, same graph, cross-checked).
 
     **This step also makes `method="shooting"` the default** and drops the
-    required-`method` sentinel added in step 13. Shooting is often
+    required-`method` sentinel added in step 13. *(Done. Measured on landing:
+    shooting beats the SOCP 3x at matched accuracy but not at the SOCP's
+    default N=10 above ~64 nodes; the README says so.)* Shooting is often
     substantially faster than the SOCP, which is why it wins the default
     here even though the Julia package defaults to `:socp` -- a deliberate
     divergence, recorded in the README. Two things come with the flip:

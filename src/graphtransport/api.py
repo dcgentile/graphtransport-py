@@ -1,17 +1,26 @@
 """Unified entry points, ported from GraphTransportation.jl's API.jl.
 
 One public function per task with a ``method`` keyword selecting the
-numerical algorithm: ``"socp"`` (needs the optional ``graphtransport[socp]``
-extra) or ``"sinkhorn"``. The shooting method plugs into the same dispatch
-tables in a later step.
+numerical algorithm:
 
-``method`` is **required**: there is deliberately no default while the port
-is incomplete. The Julia package defaults to ``:socp``, but shooting is
-often substantially faster, and this package intends to make it the default
-once Phase 5 lands -- so defaulting to anything now would mean changing the
-default twice under callers. Requiring the keyword costs one word per call
-and makes the choice of algorithm, which is a modelling decision rather
-than a performance knob, explicit at every call site.
+- ``"shooting"`` (default): Newton shooting on the Hamiltonian flow. Exact in
+  time, no optional dependency, every AdmissibleMean; requires **strictly
+  positive** densities, and falls back to the SOCP with a
+  ShootingFallbackWarning when it cannot take the data (``fallback=False``
+  raises instead).
+- ``"socp"``: a second-order-cone program (needs ``graphtransport[socp]``).
+  Handles densities supported on part of the graph, which shooting cannot;
+  time-discretisation error O(1/N).
+- ``"sinkhorn"``: entropic regularisation for a ground cost -- a different
+  object from the other two, which compute the same discrete transport
+  geodesic.
+
+The default diverges from the Julia package, which defaults to ``:socp``.
+Shooting is faster at matched accuracy -- 150 RK4 steps agree with the SOCP
+at N=40 to 4-5 digits, at a third of the cost -- and needs no conic solver.
+It is not faster than the SOCP at its default N=10 on graphs above ~64
+nodes, and it cannot take boundary-supported data; both are reasons to pass
+``method="socp"``, and the fallback warning says so.
 
 Densities: as in the Julia package, ``rhoA``, ``rhoB``, ``refs``, ``target``
 and returned barycenters are densities with respect to the graph's
@@ -72,45 +81,42 @@ class GeodesicSolution:
     ref_index: int | None = None
 
 
-# Sentinel for the required `method`: a plain required keyword-only argument
-# would raise TypeError without saying what the options are or why there is
-# no default.
-_METHOD_REQUIRED = "__required__"
+DEFAULT_METHOD = "shooting"
 
 
 def _check_method(method: str, table: dict, what: str):
-    if method is _METHOD_REQUIRED:
-        raise TypeError(
-            f"{what}: method= is required, one of {tuple(table)}. There is no default while the "
-            "port is incomplete: method='shooting' is intended to become the default once it "
-            "lands, and defaulting to another method now would change it twice under callers. "
-            "method='socp' is the exact discrete transport method (any densities, needs "
-            "graphtransport[socp]); method='sinkhorn' is entropic regularisation for a ground "
-            "cost (needs cost= and epsilon=) and computes a different object."
-        )
     if method not in table:
         raise ValueError(f"{what}: method must be one of {tuple(table)}, got {method!r}")
 
 
-# Keywords only method="sinkhorn" understands. Every other method passes its
-# unknown keywords to a solver, where they surface as e.g. "Clarabel:
-# unrecognized solver setting 'cost'" -- an error that names everything except
-# the thing to change. Since method="socp" is the default, code written for the
-# Sinkhorn API hits that on its first call, so the check is worth doing here.
-SINKHORN_ONLY = ("cost", "epsilon", "iters", "tol", "alpha0")
+# The keywords each method owns. A keyword owned by some method but not the
+# selected one is rejected by name: otherwise it falls through **kwargs and
+# surfaces far away -- as "Clarabel: unrecognized solver setting 'cost'" for
+# the SOCP, or a TypeError from a function the caller never called. Keywords
+# owned by several methods (tol, N, qp_method) pass for each owner; keywords
+# owned by none (verbose, compute_condition, a solver's own options) are left
+# to the method's signature.
+METHOD_KEYWORDS = {
+    "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
+                           "log_tol", "init", "qp_method", "qp_solver", "fallback"}),
+    "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
+    "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
+}  # fmt: skip
 
 
 def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
-    if method == "sinkhorn":
+    owned_elsewhere = set().union(*METHOD_KEYWORDS.values()) - METHOD_KEYWORDS[method]
+    stray = [k for k in kwargs if k in owned_elsewhere]
+    if not stray:
         return
-    stray = [k for k in SINKHORN_ONLY if k in kwargs]
-    if stray:
-        raise TypeError(
-            f"{what}: {', '.join(stray)} "
-            f"{'is a' if len(stray) == 1 else 'are'} method='sinkhorn' keyword"
-            f"{'' if len(stray) == 1 else 's'}, but method={method!r}. "
-            "Pass method='sinkhorn' to use them."
-        )
+    described = []
+    for k in stray:
+        owners = " and ".join(f"method={m!r}" for m, keys in METHOD_KEYWORDS.items() if k in keys)
+        described.append(f"{k} (a keyword of {owners})")
+    hint = ""
+    if method == "shooting" and "N" in stray:
+        hint = " Shooting is exact in time; its integrator's resolution is nsteps= (default 150)."
+    raise TypeError(f"{what}: method={method!r} does not take {', '.join(described)}.{hint}")
 
 
 # Input checks shared by every method. They live in the public entry points,
@@ -180,7 +186,7 @@ def _barycenter_sinkhorn(G: MarkovGraph, refs, lam, *, cost=None, epsilon=None, 
     plans = [sinkhorn_plan(K, mu[:, i], p, iters=iters) for i in active]
     J = float(sum(lam[i] * np.sum(cost * P) for i, P in zip(active, plans)))
     marginal_errors = [float(np.abs(P.sum(axis=1) - mu[:, i]).sum()) for i, P in zip(active, plans)]
-    info = {"cost": cost, "epsilon": epsilon, "iters": iters, "marginal_errors": marginal_errors}
+    info = {"cost": cost, "epsilon": epsilon, "iters": iters, "marginal_errors": marginal_errors, "method": "sinkhorn"}
     return p / G.pi, J, info
 
 
@@ -263,7 +269,7 @@ def _barycenter_socp(G: MarkovGraph, refs, lam, **kwargs):
     from graphtransport.socp import barycenter_socp
 
     nu, J, geodesics = barycenter_socp(G, refs, lam, **kwargs)
-    return nu, J, {"geodesics": geodesics}
+    return nu, J, {"geodesics": geodesics, "method": "socp"}
 
 
 def _analysis_socp(G: MarkovGraph, target, refs, **kwargs):
@@ -272,18 +278,203 @@ def _analysis_socp(G: MarkovGraph, target, refs, **kwargs):
     return analyze_socp(G, target, refs, **kwargs)
 
 
-GEODESIC_METHODS = {"socp": _geodesic_socp, "sinkhorn": _geodesic_sinkhorn}
-BARYCENTER_METHODS = {"socp": _barycenter_socp, "sinkhorn": _barycenter_sinkhorn}
-ANALYSIS_METHODS = {"socp": _analysis_socp, "sinkhorn": _analysis_sinkhorn}
+class ShootingFallbackWarning(UserWarning):
+    """method="shooting" could not take the data, and the SOCP was used instead.
+
+    Raised by the default method when a density is not strictly positive, or
+    is close enough to zero that shooting fails. Filter it to silence the
+    fallback, or escalate it with warnings.simplefilter("error",
+    ShootingFallbackWarning); pass fallback=False to get the shooting error
+    itself instead."""
+
+
+class _NotInterior(ValueError):
+    """A density shooting cannot take: at or below the positivity floor."""
+
+    def __init__(self, message: str, summary: str):
+        super().__init__(message)
+        self.summary = summary
+
+
+# Shooting needs every density strictly positive: its flow divides by the
+# density. Checked here, per argument, so the error names what the caller
+# passed and says what to do instead; log_map's own check would name its
+# internal arguments. The floor is the caller's floor_rtol, the same one the
+# solver will use -- with the default instead, a density between the two
+# floors passed this check and failed inside log_map under the wrong name.
+def _check_shooting_density(G: MarkovGraph, rho: np.ndarray, name: str, floor_rtol: float) -> np.ndarray:
+    from graphtransport.shooting import rho_floor
+
+    floor = rho_floor(G, rtol=floor_rtol)
+    if rho.min() <= floor:
+        summary = (
+            f"{name} is not strictly positive (min {rho.min():.3e}, {int(np.sum(rho <= floor))} of {G.n} nodes at "
+            "or below the positivity floor)"
+        )
+        raise _NotInterior(
+            f"{summary}, and method='shooting' needs every density in the interior: its Hamiltonian flow divides "
+            "by the density. Use method='socp', which is exact for densities supported on part of the graph, or "
+            "shooting.log_map_mollified for an approximate distance.",
+            summary,
+        )
+    # _check_density admits a mass error of MASS_TOL; the flow conserves mass
+    # exactly, so give shooting the exact mass it needs.
+    return rho / (rho @ G.pi)
+
+
+class _near_boundary:
+    """Re-raise a shooting failure with the context the caller needs.
+
+    Data that passes _check_shooting_density can still defeat shooting when it
+    comes close to zero: on a 5x5 grid, a row of nodes at 1e-4 solves and one
+    at 1e-5 does not. The internal error ("the Jacobian's perturbed
+    trajectories hit the positivity floor") is accurate but does not say that
+    the *input* made the problem stiff, which is the actionable part."""
+
+    def __init__(self, what: str, **densities):
+        self.what, self.densities = what, densities
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        from graphtransport.shooting import PositivityFloorError, ShootingError
+
+        if exc_type is None or not issubclass(exc_type, (ShootingError, PositivityFloorError)):
+            return False
+        name, rho = min(self.densities.items(), key=lambda item: float(np.min(item[1])))
+        summary = f"shooting failed near the boundary (smallest density {float(np.min(rho)):.1e}, in {name})"
+        err = ShootingError(
+            f"{self.what}(method='shooting') failed: {exc} The smallest density involved is "
+            f"{float(np.min(rho)):.1e}, in {name}; shooting gets stiff as densities approach zero, and "
+            "method='socp' has no such limit."
+        )
+        err.summary = summary
+        raise err from exc
+
+
+def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
+    """run_shooting(), or -- if shooting cannot take the data and ``fallback``
+    is set -- warn and run_socp() instead.
+
+    Only the two data-driven failures fall back: a density at the boundary
+    (_NotInterior) and a solve that fails near it (ShootingError from
+    _near_boundary). A bad argument or a solver bug still raises. Without
+    cvxpy there is no SOCP to fall back to, and the shooting error is raised
+    with a note saying so rather than being replaced by an ImportError that
+    hides the real problem."""
+    from graphtransport.shooting import ShootingError
+    from graphtransport.solvers import cvxpy_available
+
+    try:
+        return run_shooting()
+    except (_NotInterior, ShootingError) as exc:
+        if not fallback:
+            raise
+        if not cvxpy_available():
+            note = f"{exc} (The automatic fallback to method='socp' needs graphtransport[socp], which is not installed.)"
+            if isinstance(exc, _NotInterior):
+                raise _NotInterior(note, exc.summary) from exc
+            raise ShootingError(note) from exc
+        summary = getattr(exc, "summary", str(exc))
+        warnings.warn(
+            f"{what}: {summary}, which method='shooting' cannot handle. Falling back to method='socp' with its "
+            "default N=10 (time-discretisation error O(1/N)); pass method='socp' to choose N, or fallback=False "
+            "to raise instead.",
+            ShootingFallbackWarning,
+            stacklevel=4,  # _with_fallback < the method wrapper < the entry point < the caller
+        )
+        return run_socp()
+
+
+def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, floor_rtol: float = 1e-6,
+                       **kwargs) -> GeodesicSolution:
+    from graphtransport.shooting import geodesic_shooting
+
+    def run():
+        a = _check_shooting_density(G, rhoA, "rhoA", floor_rtol)
+        b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
+        with _near_boundary("geodesic", rhoA=a, rhoB=b):
+            return geodesic_shooting(G, a, b, floor_rtol=floor_rtol, **kwargs)
+
+    return _with_fallback("geodesic", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB))
+
+
+def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
+                             tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
+                             verbose: bool = False) -> float:
+    """W2 from log_map alone: the path integration geodesic() adds is not
+    needed. Takes geodesic's keywords, verbose included."""
+    from graphtransport.shooting import log_map
+
+    def run():
+        a = _check_shooting_density(G, rhoA, "rhoA", floor_rtol)
+        b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
+        with _near_boundary("transport_cost", rhoA=a, rhoB=b):
+            return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
+                           floor_rtol=floor_rtol, verbose=verbose).W2  # fmt: skip
+
+    return _with_fallback("transport_cost", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB).W2)
+
+
+def _barycenter_shooting(G: MarkovGraph, refs, lam, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs):
+    from graphtransport.shooting import barycenter_shooting
+
+    def run():
+        # a reference at weight zero is never log-mapped, so it may touch the boundary
+        checked = [
+            _check_shooting_density(G, r, f"refs[{i}]", floor_rtol) if lam[i] > 0 else r for i, r in enumerate(refs)
+        ]
+        with _near_boundary("barycenter", **{f"refs[{i}]": r for i, r in enumerate(checked) if lam[i] > 0}):
+            nu, J, info = barycenter_shooting(G, checked, lam, floor_rtol=floor_rtol, **kwargs)
+        return nu, J, {**info, "method": "shooting"}
+
+    def socp():
+        nu, J, info = _barycenter_socp(G, refs, lam)
+        return nu, J, {**info, "method": "socp"}
+
+    return _with_fallback("barycenter", fallback, run, socp)
+
+
+# analysis keywords both methods understand, forwarded on a fallback
+_SHARED_ANALYSIS_KEYWORDS = ("compute_condition", "return_system", "qp_method", "qp_solver")
+
+
+def _analysis_shooting(G: MarkovGraph, target, refs, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs):
+    from graphtransport.shooting import analyze_shooting
+
+    def run():
+        t = _check_shooting_density(G, target, "target", floor_rtol)
+        checked = [_check_shooting_density(G, r, f"refs[{i}]", floor_rtol) for i, r in enumerate(refs)]
+        with _near_boundary("analysis", target=t, **{f"refs[{i}]": r for i, r in enumerate(checked)}):
+            return analyze_shooting(G, t, checked, floor_rtol=floor_rtol, **kwargs)
+
+    shared = {k: v for k, v in kwargs.items() if k in _SHARED_ANALYSIS_KEYWORDS}
+    return _with_fallback("analysis", fallback, run, lambda: _analysis_socp(G, target, refs, **shared))
+
+
+GEODESIC_METHODS = {"shooting": _geodesic_shooting, "socp": _geodesic_socp, "sinkhorn": _geodesic_sinkhorn}
+BARYCENTER_METHODS = {"shooting": _barycenter_shooting, "socp": _barycenter_socp, "sinkhorn": _barycenter_sinkhorn}
+ANALYSIS_METHODS = {"shooting": _analysis_shooting, "socp": _analysis_socp, "sinkhorn": _analysis_sinkhorn}
 # Methods that can produce W2 without building the whole geodesic.
-TRANSPORT_COST_METHODS = {"sinkhorn": _transport_cost_sinkhorn}
+TRANSPORT_COST_METHODS = {"shooting": _transport_cost_shooting, "sinkhorn": _transport_cost_sinkhorn}
 
 
-def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = _METHOD_REQUIRED, **kwargs) -> GeodesicSolution:
+def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> GeodesicSolution:
     """The discrete transport geodesic between densities rhoA and rhoB on G.
 
-    ``method`` is required; see the module docstring for why there is no
-    default.
+    method="shooting" (default): Newton shooting on the Hamiltonian flow
+    (shooting.geodesic_shooting), then the flow integrated for the path.
+    Exact in time up to RK4 truncation; both endpoints must be strictly
+    positive. If one is not, or is close enough to zero that shooting fails,
+    this warns (ShootingFallbackWarning) and returns method="socp"'s answer
+    at its default N=10 instead -- or raises, with ``fallback=False`` or
+    without cvxpy installed. Keywords: ``fallback``, ``nsteps`` (integrator steps, default 150; rho
+    then has nsteps + 1 columns), ``tol``, ``maxiters``, ``phi0_init``,
+    ``verbose``. Honours every AdmissibleMean, including the exact
+    LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
+    the two methods' potentials are directly comparable; status is
+    "converged".
 
     method="socp": a single second-order-cone program
     (socp.geodesic_socp). Handles any densities, including boundary-supported
@@ -309,11 +500,11 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = _METHOD_REQUIRED, **kw
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
 
-def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = _METHOD_REQUIRED, **kwargs) -> float:
+def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> float:
     """The discrete transport distance W(rhoA, rhoB) (not squared):
-    sqrt(geodesic(...).W2). See geodesic for the methods and keywords;
-    ``method`` is required there too.
+    sqrt(geodesic(...).W2). See geodesic for the methods and keywords.
 
+    method="shooting" (default) needs only the log map, not the path.
     method="sinkhorn" solves only the endpoint plan rather than the whole
     path, and warns if that plan has not converged (there is no status to
     return)."""
@@ -325,9 +516,19 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = _METHOD_REQUIRED
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
 
 
-def barycenter(G: MarkovGraph, refs, lam, *, method: str = _METHOD_REQUIRED, **kwargs):
+def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwargs):
     """The discrete transport barycenter of the reference densities ``refs``
     with weights ``lam``: the minimiser of J(nu) = sum_i lam_i W^2(refs_i, nu).
+
+    method="shooting" (default): intrinsic gradient descent with exact-in-
+    time geodesics (shooting.barycenter_shooting). Every reference with
+    lam_i > 0 must be strictly positive. info = {"iters", "status",
+    "J_hist", "grad_hist", "h"}; status is "converged", "stalled" (at the
+    precision of the log maps) or "maxiters" (which warns). Keywords: ``h``,
+    ``maxiters``, ``tol`` (gradient norm, default 1e-5), ``ftol``,
+    ``log_tol``, ``nsteps``, ``init``, ``verbose``. First order, so it
+    converges linearly; method="socp" solves the same problem to its global
+    optimum and is the certificate.
 
     method="socp": one joint second-order-cone program
     (socp.barycenter_socp), solved to its global optimum.
@@ -355,9 +556,19 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = _METHOD_REQUIRED, **k
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
 
 
-def analysis(G: MarkovGraph, target, refs, *, method: str = _METHOD_REQUIRED, **kwargs) -> np.ndarray:
+def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kwargs) -> np.ndarray:
     """Recover the barycentric coordinates of ``target`` with respect to the
     reference densities ``refs``.
+
+    method="shooting" (default): shooting.analyze_shooting -- potentials from
+    log_map at ``target``, then the same Gram matrix and simplex QP as the
+    SOCP. ``target`` and every reference must be strictly positive.
+    Keywords: ``nsteps``, ``tol``, ``phi0_inits``, ``compute_condition``,
+    ``return_system``, ``qp_method``, ``qp_solver``.
+
+    A barycenter is recovered to solver tolerance only by the method that
+    synthesised it; the others recover it to their discretisation error,
+    since each checks stationarity in its own discrete convention.
 
     method="socp": socp.analyze_socp -- geodesic SOCPs from the
     target to each reference, the Gram matrix of their endpoint potentials

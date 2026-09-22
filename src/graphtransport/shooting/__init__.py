@@ -8,6 +8,7 @@ Everything here needs **strictly positive** densities. For data supported on
 part of the graph, use the SOCP (exact) instead.
 """
 
+from graphtransport.shooting.barycenter import barycenter_shooting
 from graphtransport.shooting.explog import (
     LogMapResult,
     MollifiedLogMapResult,
@@ -20,6 +21,7 @@ from graphtransport.shooting.explog import (
     solve_weighted_laplacian,
     weighted_laplacian,
 )
+from graphtransport.shooting.geodesic import geodesic_shooting
 from graphtransport.shooting.hamiltonian import (
     PositivityFloorError,
     hamiltonian,
@@ -34,7 +36,9 @@ __all__ = [
     "PositivityFloorError",
     "ShootingError",
     "analyze_shooting",
+    "barycenter_shooting",
     "exp_map",
+    "geodesic_shooting",
     "log_map",
     "log_map_mollified",
     "momentum_to_potential",

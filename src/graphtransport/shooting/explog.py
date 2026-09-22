@@ -104,6 +104,17 @@ def _check_mass(G: MarkovGraph, rho: np.ndarray, what: str) -> None:
         raise ValueError(f"{what} must be a probability density with respect to G.pi: sum(rho * G.pi) = {mass:.10g}")
 
 
+def _check_endpoint(G: MarkovGraph, rho, floor_val: float, what: str) -> np.ndarray:
+    """An interior probability density, checked under the caller's name for it.
+
+    Functions that hand their arguments on to log_map check them first: log_map
+    would report a bad reference as "target" and a bad base point as "nu",
+    whatever the caller called them."""
+    rho = _check_interior(G, rho, floor_val, what)
+    _check_mass(G, rho, what)
+    return rho
+
+
 def _check_boundary_density(G: MarkovGraph, rho, what: str) -> np.ndarray:
     """A probability density that may have zeros -- what log_map_mollified
     exists to take -- but not negative or non-finite entries."""
@@ -368,7 +379,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
 def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, phi0_inits=None,
                      compute_condition: bool = False, return_system: bool = False, qp_method: str = "auto",
-                     qp_solver=None):
+                     qp_solver=None, floor_rtol: float = 1e-6):
     """The shooting analysis backend: like analyze_socp, but each reference's
     potential is log_map(G, target, ref).phi0 -- the Hamiltonian velocity
     potential at ``target`` -- instead of the SOCP's endpoint dual. The Gram
@@ -392,10 +403,14 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
             f"{refs.shape}. Pass list(A) for references in the rows of A, or list(A.T) for columns."
         )
     refs = list(refs)
+    floor_val = rho_floor(G, rtol=floor_rtol)
+    target = _check_endpoint(G, target, floor_val, "target")
+    refs = [_check_endpoint(G, ref, floor_val, f"refs[{i}]") for i, ref in enumerate(refs)]
     if phi0_inits is not None and len(phi0_inits) != len(refs):
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
     potentials = [
-        log_map(G, target, ref, nsteps=nsteps, tol=tol, phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
+        log_map(G, target, ref, nsteps=nsteps, tol=tol, floor_rtol=floor_rtol,
+                phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(
