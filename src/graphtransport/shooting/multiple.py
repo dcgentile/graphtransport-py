@@ -179,7 +179,7 @@ class _System:
 
 
 def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps: int, tol: float, maxiters: int,
-                            floor_val: float, verbose: bool = False, init=None):
+                            floor_val: float, verbose: bool = False, init=None, give_up_early: bool = False):
     """Newton on the multiple-shooting system. nu and target must already be
     checked interior probability densities (log_map does that).
 
@@ -187,6 +187,14 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
     state at the start of every segment. The default puts the junction
     densities on the straight line from nu to target and each segment's
     potential at the linearised geodesic between consecutive junctions.
+
+    ``give_up_early`` (log_map's segments="auto") raises as soon as Newton is
+    evidently stalling, so the caller can go back to single shooting: if the
+    first step is cut to 1/8 or less, or the residual has not halved after
+    three steps. Every multiple-shooting solve that converged on the n x n
+    grids measured took a first step of 1/4 or more and halved its residual
+    within three; the one that failed (7x7 corner bumps, 1/16, then residual
+    41 -> 39 over 8 steps) spent ~10 s before auto could fall back.
 
     Returns (rho_starts, phi_starts, iters, residual). phi_starts are gauge
     fixed; the flow's potential drifts by a constant along a segment, so a
@@ -233,7 +241,7 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
             f"log_map(segments={K}): no admissible initial state found. Fall back to method='socp'."
         )
 
-    r = norm(R)
+    r = r_start = norm(R)
     iters = 0
     while r > tol:
         if iters >= maxiters:
@@ -264,6 +272,11 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
         iters += 1
         if verbose:
             logger.info("log_map(segments=%d): iter %d  residual %.3e  step %g", K, iters, r, alpha)
+        if give_up_early and r > tol and ((iters == 1 and alpha <= 1 / 8) or (iters == 3 and r > r_start / 2)):
+            raise ShootingError(
+                f"log_map(segments={K}): Newton is stalling (step {alpha:g} at iteration {iters}, residual {r:.3e} "
+                f"from {r_start:.3e})."
+            )
 
     rho_s, phi_s = system.unpack(x)
     return rho_s, phi_s, iters, r

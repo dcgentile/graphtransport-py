@@ -268,7 +268,8 @@ def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndar
     return d_rho1[: n - 1].numpy()
 
 
-def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose):
+def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose,
+                      give_up_early=False):
     """log_map by multiple shooting (shooting.multiple). A phi0_init is used
     as a warm start by sweeping the flow from it once and taking the states at
     the segment starts; if that sweep hits the floor, the default start is used."""
@@ -284,7 +285,7 @@ def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val
         init = initial_states_from_potential(G, nu, _gauge(G, phi0), segments, nsteps, floor_val)
     rho_s, phi_s, iters, r = solve_multiple_shooting(G, nu, target, segments=segments, nsteps=nsteps, tol=tol,
                                                      maxiters=maxiters, floor_val=floor_val, verbose=verbose,
-                                                     init=init)  # fmt: skip
+                                                     init=init, give_up_early=give_up_early)  # fmt: skip
     phi0 = phi_s[:, 0]
     m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r, (rho_s, phi_s))
@@ -323,8 +324,9 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     ``segments="auto"`` (the default) starts with single shooting and, if
     the line search cut the first Newton step to a quarter or less -- the
     signature of a long transport -- switches to multiple shooting with 8
-    segments from its own default start; if multiple shooting fails, single
-    shooting carries on from its first step. Short transports stay single
+    segments from its own default start; if multiple shooting fails, or is
+    evidently stalling (a first step cut to 1/8, or a residual not halved in
+    three steps), single shooting carries on from its first step. Short transports stay single
     shooting at no extra cost; a long one pays for one single-shooting step.
     ``segments=1`` is single shooting throughout.
 
@@ -456,9 +458,12 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
                 # its junction states started K=8 about 40% more Newton steps from the
                 # target (12x12 corner bumps: 10 against 7).
                 result = _log_map_multiple(G, nu, target, None, tol, maxiters - iters, nsteps, floor_val, floor_rtol, K,
-                                           verbose)  # fmt: skip
+                                           verbose, give_up_early=True)  # fmt: skip
             except ShootingError:
-                pass  # multiple shooting could not take it from here; single shooting carries on
+                # multiple shooting could not take it (or was stalling, and gave up early);
+                # single shooting carries on from its first step
+                if verbose:
+                    logger.info("log_map: multiple shooting did not converge; continuing by single shooting")
             else:
                 result.iters += iters
                 return result

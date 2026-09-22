@@ -200,3 +200,19 @@ def test_auto_carries_on_with_single_shooting_if_the_switch_fails(long_pair, lon
     assert r.starts is None
     assert r.W2 == pytest.approx(long_solves[0].W2, rel=1e-12)
     assert r.iters == long_solves[0].iters  # single shooting's own path, from its first step on
+
+
+def test_auto_gives_up_quickly_where_multiple_shooting_stalls():
+    # 7x7 corner bumps: the first step is cut to 1/8, so auto switches, but K=8
+    # from its default start stalls (a first step of 1/16, residual 41 -> 39
+    # over 8 steps) and would fail after 50. auto abandons it after one step and
+    # carries on by single shooting -- same answer, and 2.3 s rather than 12.6 s.
+    G, A, B = _corner_pair(7, 6)
+    xy = np.array([(i % 7, i // 7) for i in range(G.n)], dtype=float)
+    a = np.exp(-(xy**2).sum(axis=1) / (2 * 1.4**2)) + 0.05
+    b = a[::-1].copy()
+    a, b = a / (a @ G.pi), b / (b @ G.pi)
+    single = log_map(G, a, b, segments=1)
+    auto = log_map(G, a, b)
+    assert auto.starts is None  # ended on single shooting
+    assert auto.iters == single.iters and auto.W2 == pytest.approx(single.W2, rel=1e-12)
