@@ -25,8 +25,8 @@ def _positive_float(value, name: str, *, allow_zero: bool = False) -> float:
 
 
 def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: int = 200, tol: float = 1e-5,
-                        ftol: float = 1e-12, nsteps: int = 150, log_tol: float = 1e-12, init=None,
-                        floor_rtol: float = 1e-6, verbose: bool = False):
+                        ftol: float = 1e-12, nsteps: int = 150, log_tol: float = 1e-12, log_maxiters: int = 50,
+                        init=None, floor_rtol: float = 1e-6, verbose: bool = False):
     """The discrete transport barycenter of ``refs`` with weights ``lam``, by
     intrinsic gradient descent: each iteration log-maps nu to every reference
     (warm-started from the previous iteration, retried cold if that stalls),
@@ -51,6 +51,11 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     the log maps) or "maxiters" (which warns). A step decreases J by about
     h ||g||^2, so asking for ``tol`` below sqrt(ftol * J) typically ends as
     "stalled" rather than "converged".
+
+    ``maxiters`` bounds the descent; each log map is a Newton solve with its
+    own tolerance ``log_tol`` and iteration budget ``log_maxiters``
+    (log_map's maxiters). A long transport through thin densities can need
+    more than the default 50.
     """  # fmt: skip
     h = _positive_float(h, "h")
     tol = _positive_float(tol, "tol")
@@ -58,6 +63,8 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     log_tol = _positive_float(log_tol, "log_tol")
     if isinstance(maxiters, bool) or not isinstance(maxiters, (int, np.integer)) or maxiters < 1:
         raise ValueError(f"maxiters must be an integer >= 1, got {maxiters!r}")
+    if isinstance(log_maxiters, bool) or not isinstance(log_maxiters, (int, np.integer)) or log_maxiters < 0:
+        raise ValueError(f"log_maxiters must be an integer >= 0, got {log_maxiters!r}")
     lam = np.asarray(lam, dtype=float)
     refs = [np.asarray(r, dtype=float) for r in refs]
     active = [int(i) for i in np.flatnonzero(lam > 0)]
@@ -74,6 +81,8 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
         nu = _check_interior(G, init, floor_val, "init")
     nu = nu / (nu @ G.pi)
 
+    last_failure = []  # the most recent log-map error, for the unreachable-reference message
+
     def logmaps(base, inits):
         # Log-map base to every active reference, warm-started from `inits` and
         # retried cold if the warm start stalls; None if one cannot be reached.
@@ -82,10 +91,11 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
             result = None
             for start in (inits[i], None):
                 try:
-                    result = log_map(G, base, refs[i], nsteps=nsteps, tol=log_tol, phi0_init=start,
-                                     floor_rtol=floor_rtol)
+                    result = log_map(G, base, refs[i], nsteps=nsteps, tol=log_tol, maxiters=log_maxiters,
+                                     phi0_init=start, floor_rtol=floor_rtol)
                     break
-                except (ShootingError, PositivityFloorError):
+                except (ShootingError, PositivityFloorError) as exc:
+                    last_failure[:] = [exc]
                     if start is None:
                         break
             if result is None:
@@ -104,7 +114,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     if rs is None:
         raise ShootingError(
             "barycenter(method='shooting'): a reference is not reachable by shooting from the initial point; "
-            "use method='socp'"
+            f"use method='socp'. The log map failed with: {last_failure[0]}"
         )
     J, h0 = objective(rs), h
     J_hist, grad_hist = [], []
