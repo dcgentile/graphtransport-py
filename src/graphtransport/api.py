@@ -453,6 +453,90 @@ def _analysis_shooting(G: MarkovGraph, target, refs, *, fallback: bool = True, f
     return _with_fallback("analysis", fallback, run, lambda: _analysis_socp(G, target, refs, **shared))
 
 
+# ----- torch tensors -----
+#
+# geodesic and transport_cost accept torch tensors for rhoA and rhoB and
+# return tensors. With method="shooting" they are differentiable end to end
+# (shooting.differentiable: exact gradients of the discrete solve, by the
+# implicit function theorem). The other methods, and shooting's fallback to
+# the SOCP, are not differentiable: with inputs that require grad they raise
+# rather than hand back an answer that silently carries no gradient; without
+# grad they run as usual and convert their outputs.
+
+
+def _is_torch(*values) -> bool:
+    import torch
+
+    return any(isinstance(v, torch.Tensor) for v in values)
+
+
+def _as_float64_tensor(value, name: str):
+    import torch
+
+    t = torch.as_tensor(value)
+    if t.device.type != "cpu":
+        raise ValueError(f"{name} is on {t.device}; graphtransport computes on the CPU (move it with .cpu())")
+    return t.to(torch.float64)
+
+
+def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
+    import torch
+
+    as_t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64)  # noqa: E731
+    return GeodesicSolution(as_t(sol.W2), as_t(sol.rho), as_t(sol.m), as_t(sol.m0), as_t(sol.phi0),
+                            as_t(sol.phi1), sol.status, sol.solvetime, sol.ref_index)  # fmt: skip
+
+
+def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):
+    """geodesic / transport_cost for torch inputs: a GeodesicSolution of
+    tensors, or (cost_only) the tensor W2."""
+    import torch
+
+    from graphtransport.shooting import ShootingError
+    from graphtransport.shooting.differentiable import geodesic_shooting_torch, transport_cost_shooting_torch
+
+    A, B = _as_float64_tensor(rhoA, "rhoA"), _as_float64_tensor(rhoB, "rhoB")
+    a, b = _check_density(G, A.detach().numpy(), "rhoA"), _check_density(G, B.detach().numpy(), "rhoB")
+    needs_grad = A.requires_grad or B.requires_grad
+
+    if method != "shooting":
+        if needs_grad:
+            raise TypeError(
+                f"{what}: gradients are available for method='shooting' only; method={method!r} is not "
+                "differentiable. Detach the inputs (or pass numpy arrays) to use it."
+            )
+        if cost_only and method in TRANSPORT_COST_METHODS:
+            return torch.as_tensor(float(TRANSPORT_COST_METHODS[method](G, a, b, **kwargs)), dtype=torch.float64)
+        sol = _solution_to_torch(GEODESIC_METHODS[method](G, a, b, **kwargs))
+        return sol.W2 if cost_only else sol
+
+    fallback = kwargs.pop("fallback", True)
+    floor_rtol = kwargs.pop("floor_rtol", 1e-6)
+    solve = transport_cost_shooting_torch if cost_only else geodesic_shooting_torch
+
+    def run():
+        _check_shooting_density(G, a, "rhoA", floor_rtol)
+        _check_shooting_density(G, b, "rhoB", floor_rtol)
+        with _near_boundary(what, rhoA=a, rhoB=b):
+            return solve(G, A, B, floor_rtol=floor_rtol, **kwargs)
+
+    if needs_grad:
+        try:
+            return run()
+        except (_NotInterior, ShootingError) as exc:
+            note = (f"{exc} (No fallback to method='socp': the inputs require grad, and the SOCP is not "
+                    "differentiable.)")  # fmt: skip
+            if isinstance(exc, _NotInterior):
+                raise _NotInterior(note, exc.summary) from exc
+            raise ShootingError(note) from exc
+
+    def socp():
+        sol = _solution_to_torch(_geodesic_socp(G, a, b))
+        return sol.W2 if cost_only else sol
+
+    return _with_fallback(what, fallback, run, socp)
+
+
 GEODESIC_METHODS = {"shooting": _geodesic_shooting, "socp": _geodesic_socp, "sinkhorn": _geodesic_sinkhorn}
 BARYCENTER_METHODS = {"shooting": _barycenter_shooting, "socp": _barycenter_socp, "sinkhorn": _barycenter_sinkhorn}
 ANALYSIS_METHODS = {"shooting": _analysis_shooting, "socp": _analysis_socp, "sinkhorn": _analysis_sinkhorn}
@@ -493,9 +577,20 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     (l1, default 1e-6), otherwise "iteration_limit". The
     path's end columns are the blurred endpoints the Sinkhorn barycenter
     returns, not rhoA/rhoB exactly; m, phi0, phi1 are NaN-filled.
+
+    Torch tensors: rhoA and rhoB may be torch tensors (computed in float64 on
+    the CPU), and the solution's fields are then tensors. With
+    method="shooting" all of them -- W2, the path, the momenta, the
+    potentials -- are differentiable with respect to both endpoints, exactly
+    for the discrete solve (shooting.differentiable). The other methods are
+    not differentiable: they raise if an input requires grad, and otherwise
+    return tensors with no graph. Shooting's fallback to the SOCP is disabled
+    when an input requires grad; shooting raises instead.
     """
     _check_method(method, GEODESIC_METHODS, "geodesic")
     _check_kwargs(method, kwargs, "geodesic")
+    if _is_torch(rhoA, rhoB):
+        return _torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "geodesic", cost_only=False)
     rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
@@ -507,13 +602,33 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     method="shooting" (default) needs only the log map, not the path.
     method="sinkhorn" solves only the endpoint plan rather than the whole
     path, and warns if that plan has not converged (there is no status to
-    return)."""
+    return).
+
+    Takes torch tensors as geodesic does, returning a 0-d tensor. Its
+    gradient is undefined where W = 0 (rhoA == rhoB), as the square root's
+    is; differentiate geodesic(...).W2 there."""
     _check_method(method, GEODESIC_METHODS, "transport_cost")
     _check_kwargs(method, kwargs, "transport_cost")
+    if _is_torch(rhoA, rhoB):
+        return torch_sqrt(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
     if method in TRANSPORT_COST_METHODS:
         rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
         return float(np.sqrt(TRANSPORT_COST_METHODS[method](G, rhoA, rhoB, **kwargs)))
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
+
+
+def torch_sqrt(W2):
+    import torch
+
+    return torch.sqrt(W2)
+
+
+def _reject_torch(what: str, *values) -> None:
+    if _is_torch(*values):
+        raise TypeError(
+            f"{what} does not take torch tensors yet (differentiable {what} is planned); pass numpy arrays. "
+            "geodesic and transport_cost take tensors, with gradients for method='shooting'."
+        )
 
 
 def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwargs):
@@ -551,6 +666,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     """
     _check_method(method, BARYCENTER_METHODS, "barycenter")
     _check_kwargs(method, kwargs, "barycenter")
+    _reject_torch("barycenter", lam, *(refs if isinstance(refs, (list, tuple)) else [refs]))
     refs = _check_refs(G, refs)
     lam = _check_weights(lam, len(refs))
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
@@ -590,5 +706,6 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     """
     _check_method(method, ANALYSIS_METHODS, "analysis")
     _check_kwargs(method, kwargs, "analysis")
+    _reject_torch("analysis", target, *(refs if isinstance(refs, (list, tuple)) else [refs]))
     target, refs = _check_density(G, target, "target"), _check_refs(G, refs)
     return ANALYSIS_METHODS[method](G, target, refs, **kwargs)
