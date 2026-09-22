@@ -100,7 +100,7 @@ def _check_method(method: str, table: dict, what: str):
 # to the method's signature.
 METHOD_KEYWORDS = {
     "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
-                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback"}),
+                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback", "segments"}),
     "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
     "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
 }  # fmt: skip
@@ -457,7 +457,7 @@ def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, flo
 
 def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
                              tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
-                             verbose: bool = False) -> float:
+                             segments: int = 1, verbose: bool = False) -> float:
     """W2 from log_map alone: the path integration geodesic() adds is not
     needed. Takes geodesic's keywords, verbose included."""
     from graphtransport.shooting import log_map
@@ -467,7 +467,7 @@ def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = Tru
         b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
         with _explain_shooting_failure("transport_cost", rhoA=a, rhoB=b):
             return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                           floor_rtol=floor_rtol, verbose=verbose).W2  # fmt: skip
+                           floor_rtol=floor_rtol, segments=segments, verbose=verbose).W2  # fmt: skip
 
     return _with_fallback("transport_cost", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB).W2)
 
@@ -618,9 +618,11 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     zero, or a transport that needs more than maxiters Newton steps), this warns
     (ShootingFallbackWarning) and returns method="socp"'s answer at its
     default N=10 instead -- or raises, with ``fallback=False`` or
-    without cvxpy installed. Keywords: ``fallback``, ``nsteps`` (integrator steps, default 150; rho
-    then has nsteps + 1 columns), ``tol``, ``maxiters``, ``phi0_init``,
-    ``verbose``. Honours every AdmissibleMean, including the exact
+    without cvxpy installed. Keywords: ``fallback``, ``nsteps`` (integrator
+    steps, default 150; rho then has nsteps + 1 columns), ``tol``,
+    ``maxiters``, ``phi0_init``, ``segments`` (default 1; more for multiple
+    shooting, faster on long transports and slower on short ones -- see
+    shooting.log_map and the README), ``verbose``. Honours every AdmissibleMean, including the exact
     LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
     the two methods' potentials are directly comparable; status is
     "converged".
@@ -668,7 +670,8 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     """The discrete transport distance W(rhoA, rhoB) (not squared):
     sqrt(geodesic(...).W2). See geodesic for the methods and keywords.
 
-    method="shooting" (default) needs only the log map, not the path.
+    method="shooting" (default) needs only the log map, not the path, and
+    takes geodesic's keywords, ``segments`` included.
     method="sinkhorn" solves only the endpoint plan rather than the whole
     path, and warns if that plan has not converged (there is no status to
     return).
@@ -721,7 +724,9 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     precision of the log maps) or "maxiters" (which warns). Keywords: ``h``,
     ``maxiters`` (descent iterations), ``tol`` (gradient norm, default
     1e-5), ``ftol``, ``log_tol`` and ``log_maxiters`` (each log map's Newton
-    tolerance and budget, default 50), ``nsteps``, ``init``, ``verbose``. First order, so it
+    tolerance and budget, default 50), ``segments`` (multiple shooting for
+    each log map, see shooting.log_map), ``nsteps``, ``init``, ``verbose``.
+    First order, so it
     converges linearly; method="socp" solves the same problem to its global
     optimum and is the certificate.
 
@@ -762,7 +767,8 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     log_map at ``target``, then the same Gram matrix and simplex QP as the
     SOCP. ``target`` and every reference must be strictly positive.
     Keywords: ``nsteps``, ``tol`` and ``maxiters`` (each log map's Newton
-    tolerance and budget, default 50), ``phi0_inits``, ``compute_condition``,
+    tolerance and budget, default 50), ``segments`` (multiple shooting for
+    each log map, see shooting.log_map), ``phi0_inits``, ``compute_condition``,
     ``return_system``, ``qp_method``, ``qp_solver``.
 
     A barycenter is recovered to solver tolerance only by the method that

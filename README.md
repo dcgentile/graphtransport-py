@@ -68,8 +68,24 @@ for Gaussian bumps in opposite corners:
   6.4 s for near-uniform densities and 71 s for the corner bumps.
 
 For large graphs, long transports, or data near the boundary, pass
-`method="socp"`. Multiple shooting, which splits a long transport into
-short segments, is planned to cut shooting's cost there.
+`method="socp"`.
+
+**Multiple shooting.** `segments=K` (every entry point, and the torch path)
+splits [0, 1] into K segments and solves for the state at every junction
+together. It solves the same discrete problem as single shooting, so the
+answers agree to Newton's tolerance; what changes is the cost. Seconds per
+geodesic on the same grids:
+
+| nodes | near-uniform: K=1 | K=2 | K=4 | K=8 | corner bumps: K=1 | K=2 | K=4 | K=8 |
+|---|---|---|---|---|---|---|---|---|
+| 64 | 0.50 | 0.58 | 0.63 | 0.66 | 2.8 | 2.1 | 1.6 | 1.3 |
+| 100 | 0.75 | 1.1 | 1.2 | 1.4 | 5.0 | 4.2 | 3.2 | 3.1 |
+| 144 | 1.5 | 2.2 | 2.6 | 2.8 | 11 | 9.3 | 10 | 6.5 |
+| 256 | 5.4 | 9.4 | 11 | 12 | 71 | 46 | 52 | 32 |
+
+On long transports it takes fewer Newton steps and wins (2.2x at K=8 on
+256 nodes); on short ones each step costs more -- a Jacobian carries about
+twice the tangents -- and single shooting wins. The default is K=1.
 
 ### Differentiable geodesics
 
