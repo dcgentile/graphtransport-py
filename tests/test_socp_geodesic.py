@@ -165,3 +165,35 @@ def test_solution_structure():
     np.testing.assert_allclose(sol.rho[:, -1], [0.5, 0.5, 2.0], atol=1e-6)
     np.testing.assert_allclose(sol.rho.T @ G.pi, 1.0, atol=1e-6)  # mass conserved along the path
     assert sol.solvetime >= 0
+
+
+@pytest.mark.parametrize("N", [0, -3, 2.5, True, "4", None])
+def test_invalid_N_is_rejected_before_the_solver(N):
+    # N=0 used to be a ZeroDivisionError and N=2.5 a cvxpy dimension error.
+    Q, pi = triangle_markov_chain()
+    G = MarkovGraph(Q, pi)
+    with pytest.raises(ValueError, match="N must be an integer >= 1"):
+        geodesic_socp(G, [2.0, 0.5, 0.5], [0.5, 0.5, 2.0], N=N)
+
+
+def test_failed_solve_with_check_false_returns_nan_of_the_right_shape():
+    # An infeasible solve leaves every variable's .value at None, and
+    # np.asarray(None, dtype=float) is the 0-d array nan rather than an error,
+    # so the solution's fields used to come back 0-d (and m[:, 0] raised).
+    Q, pi = triangle_markov_chain()
+    G = MarkovGraph(Q, pi)
+    bad = np.array([2.0, 0.5, 1.5])  # wrong mass: no feasible path
+    with pytest.raises(RuntimeError, match="not a solution"):
+        geodesic_socp(G, bad, [0.5, 0.5, 2.0], N=4)
+
+    sol = geodesic_socp(G, bad, [0.5, 0.5, 2.0], N=4, check=False)
+    assert sol.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
+    assert sol.rho.shape == (3, 5) and sol.m.shape == (3, 4) and sol.m0.shape == (3,)
+    assert np.isnan(sol.rho).all() and np.isnan(sol.m).all()
+
+
+def test_failed_solve_error_carries_a_hint():
+    Q, pi = triangle_markov_chain()
+    G = MarkovGraph(Q, pi)
+    with pytest.raises(RuntimeError, match="check=False"):
+        geodesic_socp(G, [2.0, 0.5, 1.5], [0.5, 0.5, 2.0], N=4)

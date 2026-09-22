@@ -60,6 +60,22 @@ def _mean_cone(cp, mean: AdmissibleMean, rx, ry, theta):
     raise TypeError(f"unsupported mean for the SOCP: {mean!r}")
 
 
+def _check_steps(N) -> None:
+    """N must be a positive integer (bool is an int, hence the first clause)."""
+    if isinstance(N, bool) or not isinstance(N, (int, np.integer)) or N < 1:
+        raise ValueError(f"N must be an integer >= 1 (the number of time intervals), got {N!r}")
+
+
+def _value(variable, shape: tuple[int, int]) -> np.ndarray:
+    """A solved variable's value, or NaN of the right shape if the solve
+    produced none. np.asarray(None, dtype=float) is the 0-d array nan rather
+    than an error, so without this an infeasible solve returns a solution
+    object whose fields are 0-d."""
+    if variable.value is None:
+        return np.full(shape, np.nan)
+    return np.asarray(variable.value, dtype=float)
+
+
 def geodesic_block(G: MarkovGraph, N: int, h: float, left, right) -> dict:
     """Variables and constraints for one geodesic on G with N time intervals
     of length h, from density ``left`` to density ``right`` (each a vector or
@@ -117,9 +133,13 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     (calibrated against finite differences and the two-node closed form in
     the tests, as the Julia package does for JuMP's convention).
     """
-    phi0 = -np.asarray(block["c_left"].dual_value, dtype=float).reshape(G.n) / G.pi / weight
-    phi1 = -np.asarray(block["c_right"].dual_value, dtype=float).reshape(G.n) / G.pi / weight
-    return phi0, phi1
+    def phi(constraint):
+        dual = constraint.dual_value
+        if dual is None:  # a failed solve with check=False
+            return np.full(G.n, np.nan)
+        return -np.asarray(dual, dtype=float).reshape(G.n) / G.pi / weight
+
+    return phi(block["c_left"]), phi(block["c_right"])
 
 
 def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check: bool = True,
@@ -137,15 +157,21 @@ def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check
     """
     import cvxpy as cp
 
+    _check_steps(N)
     h = 1.0 / N
     rhoA = np.asarray(rhoA, dtype=float)
     rhoB = np.asarray(rhoB, dtype=float)
     blk = geodesic_block(G, N, h, rhoA, rhoB)
     problem = cp.Problem(cp.Minimize(h * blk["action"]), blk["constraints"])
-    status = solve_conic(problem, solver, "geodesic_socp", check=check, verbose=verbose, **solver_kwargs)
-    phi0, phi1 = endpoint_potentials(G, blk)
-    m = np.asarray(blk["m"].value, dtype=float)
+    status = solve_conic(
+        problem, solver, "geodesic_socp", check=check, verbose=verbose,
+        hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate.",
+        **solver_kwargs,
+    )  # fmt: skip
+    rho = _value(blk["rho"], (G.n, N + 1))
+    m = _value(blk["m"], (G.E.shape[0], N))
     return GeodesicSolution(
-        float(problem.value), np.asarray(blk["rho"].value, dtype=float), m, m[:, 0].copy(),
-        phi0, phi1, status, float(problem.solver_stats.solve_time or 0.0),
+        float(problem.value) if problem.value is not None else np.nan,
+        rho, m, m[:, 0].copy(),
+        *endpoint_potentials(G, blk), status, float(problem.solver_stats.solve_time or 0.0),
     )  # fmt: skip
