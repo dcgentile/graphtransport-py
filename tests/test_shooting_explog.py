@@ -154,7 +154,7 @@ def test_log_map_against_the_socp(builder):
     # The SOCP's endpoint potential is the gradient of W2; the flow's phi0 is the
     # Hamiltonian velocity potential. In the continuum limit phi_socp = -2 phi0.
     np.testing.assert_allclose(
-        graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05, atol=1e-3
+        graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05
     )
 
 
@@ -325,3 +325,84 @@ def test_log_map_mollified_rejects_bad_levels(epsilons, match):
     G = MarkovGraph(*triangle_markov_chain())
     with pytest.raises(ValueError, match=match):
         log_map_mollified(G, np.ones(3), np.array([1.2, 0.9, 0.9]), epsilons=epsilons)
+
+
+# ----- review fixes -----
+
+
+def _grid3_pair(seed=3):
+    G = MarkovGraph(*grid_markov_chain(3))
+    rng = np.random.default_rng(seed)
+    return G, _density(G, rng), _density(G, rng)
+
+
+def test_log_map_mollified_rejects_a_negative_density_before_mollifying():
+    # (1 - eps) rho + eps lifts -1e-4 above the floor at eps = 1e-3, so every
+    # level's log_map used to accept it and a distance came back.
+    G, nu, mu = _grid3_pair()
+    bad = mu.copy()
+    bad[0] = -1e-4
+    bad /= bad @ G.pi
+    with pytest.raises(ValueError, match="negative entries"):
+        log_map_mollified(G, nu, bad, epsilons=(1e-2, 1e-3))
+
+
+@pytest.mark.parametrize(
+    "target, match",
+    [(np.full(9, np.nan), "non-finite"), (np.ones(4), r"shape \(9,\)"), (2 * np.ones(9), "probability density")],
+)
+def test_log_map_mollified_validates_its_raw_inputs(target, match):
+    G, nu, _ = _grid3_pair()
+    with pytest.raises(ValueError, match=match):
+        log_map_mollified(G, nu, target)
+
+
+def test_log_map_mollified_accepts_zeros():
+    # the reason the function exists
+    G, nu, mu = _grid3_pair()
+    target = mu.copy()
+    target[:3] = 0.0
+    target /= target @ G.pi
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert log_map_mollified(G, nu, target, epsilons=(1e-2, 1e-3)).W > 0
+
+
+@pytest.mark.parametrize("epsilons", [(1e-2, 1e-2), (1e-2, 1e-3, 1e-2)])
+def test_log_map_mollified_requires_distinct_levels(epsilons):
+    # Coincident sqrt(eps) rows make the fit rank-deficient; lstsq returned a
+    # minimum-norm split of one distance between W0 and a, reported as W.
+    G, nu, mu = _grid3_pair()
+    with pytest.raises(ValueError, match="distinct"):
+        log_map_mollified(G, nu, mu, epsilons=epsilons)
+
+
+def test_exp_map_names_a_boundary_base_point_for_either_tangent_kind():
+    # The momentum branch used to reach the Laplacian solve first and report
+    # "the graph is disconnected".
+    G, nu, _ = _grid3_pair()
+    nu = nu.copy()
+    nu[0] = 0.0
+    for tangent in (np.full(len(G.E), 0.01), np.zeros(G.n)):
+        with pytest.raises(ValueError, match="positivity floor"):
+            exp_map(G, nu, tangent)
+
+
+def test_log_map_rejects_a_non_finite_warm_start():
+    # used to be halved thirteen times and reported as "too far apart"
+    G, nu, mu = _grid3_pair()
+    with pytest.raises(ValueError, match="phi0_init has non-finite entries"):
+        log_map(G, nu, mu, phi0_init=np.full(G.n, np.nan))
+
+
+def test_analyze_shooting_names_the_2d_refs_trap():
+    G, nu, mu = _grid3_pair()
+    with pytest.raises(ValueError, match="sequence of densities"):
+        analyze_shooting(G, nu, np.column_stack([mu, nu]))
+
+
+def test_verbose_log_map_goes_through_logging(caplog):
+    G, nu, mu = _grid3_pair()
+    with caplog.at_level("INFO", logger="graphtransport.shooting.explog"):
+        log_map(G, nu, mu, verbose=True)
+    assert any("residual" in rec.getMessage() for rec in caplog.records)

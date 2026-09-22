@@ -26,6 +26,7 @@ residual.
 
 from __future__ import annotations
 
+import logging
 import warnings
 from dataclasses import dataclass
 
@@ -39,8 +40,11 @@ from graphtransport.shooting.hamiltonian import (
     _check_interior,
     _integrate_end,
     hamiltonian,
+    integrate_hamiltonian,
     rho_floor,
 )
+
+logger = logging.getLogger(__name__)
 
 # Relative step of the finite-difference Jacobian. The discrete flow map is
 # evaluated to ~1e-13 after 150 RK4 steps, so the step balancing truncation
@@ -98,6 +102,22 @@ def _check_mass(G: MarkovGraph, rho: np.ndarray, what: str) -> None:
     mass = float(rho @ G.pi)
     if abs(mass - 1.0) > 1e-8:
         raise ValueError(f"{what} must be a probability density with respect to G.pi: sum(rho * G.pi) = {mass:.10g}")
+
+
+def _check_boundary_density(G: MarkovGraph, rho, what: str) -> np.ndarray:
+    """A probability density that may have zeros -- what log_map_mollified
+    exists to take -- but not negative or non-finite entries."""
+    rho = np.asarray(rho, dtype=float)
+    if rho.shape != (G.n,):
+        raise ValueError(f"{what} must have shape ({G.n},), got {rho.shape}")
+    if not np.all(np.isfinite(rho)):
+        raise ValueError(f"{what} has non-finite entries")
+    floor = -1e-9 * max(1.0, float(np.abs(rho).max()))  # the round-off allowance of api._check_density
+    if rho.min() < floor:
+        raise ValueError(f"{what} has negative entries (min {rho.min():.3e}); a density must be nonnegative")
+    rho = np.maximum(rho, 0.0)
+    _check_mass(G, rho, what)
+    return rho
 
 
 def weighted_laplacian(G: MarkovGraph, nu) -> sparse.csr_matrix:
@@ -174,6 +194,9 @@ def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, k
     the positivity floor before time ``t``.
     """  # fmt: skip
     n, n_edges = G.n, G.E.shape[0]
+    # Checked first: the momentum branch solves a Laplacian at nu, and a
+    # boundary nu there surfaces as "the graph is disconnected".
+    nu = _check_interior(G, nu, rho_floor(G, rtol=floor_rtol), "nu")
     tangent = np.asarray(tangent, dtype=float)
     if kind == "auto":
         length = tangent.shape[0] if tangent.ndim == 1 else -1
@@ -193,8 +216,6 @@ def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, k
         phi0 = momentum_to_potential(G, nu, tangent)
     else:
         raise ValueError(f"kind must be 'auto', 'potential' or 'momentum', got {kind!r}")
-
-    from graphtransport.shooting.hamiltonian import integrate_hamiltonian
 
     return integrate_hamiltonian(G, nu, phi0, nsteps=nsteps, T=t, floor_rtol=floor_rtol)[0][:, -1]
 
@@ -278,6 +299,9 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         phi0 = np.asarray(phi0_init, dtype=float)
         if phi0.shape != (n,):
             raise ValueError(f"phi0_init must have shape ({n},), got {phi0.shape}")
+        if not np.all(np.isfinite(phi0)):
+            # otherwise the damping loop halves nan and reports "too far apart"
+            raise ValueError("phi0_init has non-finite entries")
         phi0 = _gauge(G, phi0)
     z = phi0[: n - 1].copy()
 
@@ -335,7 +359,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
             )
         iters += 1
         if verbose:
-            print(f"log_map: iter {iters}  residual {r:.3e}  step {alpha:g}")
+            logger.info("log_map: iter %d  residual %.3e  step %g", iters, r, alpha)
 
     phi0 = _reduced_to_potential(G, z)
     m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
@@ -362,6 +386,11 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     """  # fmt: skip
     from graphtransport.gram import potential_gram_qp
 
+    if isinstance(refs, np.ndarray) and refs.ndim != 1:
+        raise ValueError(
+            f"refs must be a sequence of densities, each of shape ({G.n},); got a {refs.ndim}-D array of shape "
+            f"{refs.shape}. Pass list(A) for references in the rows of A, or list(A.T) for columns."
+        )
     refs = list(refs)
     if phi0_inits is not None and len(phi0_inits) != len(refs):
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
@@ -396,12 +425,18 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
     ``tol`` defaults to a looser 1e-7; the rest of ``kwargs`` go to log_map.
     """  # fmt: skip
     levels = sorted((float(e) for e in epsilons), reverse=True)
-    if len(levels) < 2:
-        raise ValueError("log_map_mollified needs at least two epsilon levels to extrapolate")
+    if len(set(levels)) < 2:
+        # Coincident levels make the fit rank-deficient, and lstsq answers that
+        # with a minimum-norm solution rather than an error.
+        raise ValueError(f"log_map_mollified needs at least two distinct epsilon levels, got {tuple(epsilons)}")
+    if len(set(levels)) != len(levels):
+        raise ValueError(f"epsilon levels must be distinct, got {tuple(epsilons)}")
     if levels[0] >= 1 or levels[-1] <= 0:
         raise ValueError(f"every epsilon must lie in (0, 1), got {tuple(levels)}")
-    nu = np.asarray(nu, dtype=float)
-    target = np.asarray(target, dtype=float)
+    # Validated before mollifying: (1 - eps) rho + eps can lift a negative
+    # entry above the floor, after which every level's log_map would accept it.
+    nu = _check_boundary_density(G, nu, "nu")
+    target = _check_boundary_density(G, target, "target")
 
     def mollify(rho, eps):
         return (1 - eps) * rho + eps
@@ -420,7 +455,7 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
         result = level
         Ws.append(np.sqrt(level.W2))
         used.append(eps)
-    if len(used) < 2:
+    if len(used) < 2:  # levels are distinct, so the fit below has full rank
         raise ShootingError("log_map_mollified: fewer than two epsilon levels solved; fall back to method='socp'")
 
     X = np.column_stack([np.ones(len(used)), np.sqrt(used)])
