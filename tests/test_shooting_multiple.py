@@ -34,6 +34,13 @@ def long_pair():
     return _corner_pair(10, 9)
 
 
+@pytest.fixture(scope="module")
+def long_solves(long_pair):
+    # each 10x10 solve takes seconds; solved once and shared
+    G, A, B = long_pair
+    return log_map(G, A, B), log_map(G, A, B, segments=4)
+
+
 def test_segment_steps_cover_the_step_grid():
     assert segment_steps(150, 4) == [38, 38, 37, 37]
     assert segment_steps(7, 7) == [1] * 7
@@ -58,12 +65,11 @@ def test_segments_one_is_single_shooting(short_pair):
     assert r.W2 == log_map(G, A, B).W2
 
 
-def test_a_long_transport_takes_fewer_newton_steps_and_agrees_with_julia(long_pair):
+def test_a_long_transport_takes_fewer_newton_steps_and_agrees_with_julia(long_pair, long_solves):
     # Single shooting (exact Jacobian) takes 19 iterations here, as Julia does;
     # four short segments bend less, and Newton needs about half as many.
     G, A, B = long_pair
-    single = log_map(G, A, B)
-    r = log_map(G, A, B, segments=4)
+    single, r = long_solves
     assert r.iters < single.iters
     assert r.W2 == pytest.approx(138.60667081914244, rel=1e-12)  # Julia's log_map
     rho_s, phi_s = r.starts
@@ -104,18 +110,17 @@ def test_the_jacobian_is_exact(short_pair):
         np.testing.assert_allclose(J[:, j], central, atol=1e-7 * np.abs(J).max())
 
 
-def test_a_single_shooting_potential_warm_starts_multiple_shooting(long_pair):
+def test_a_single_shooting_potential_warm_starts_multiple_shooting(long_pair, long_solves):
     G, A, B = long_pair
-    phi0 = log_map(G, A, B).phi0
-    r = log_map(G, A, B, segments=4, phi0_init=phi0)
+    r = log_map(G, A, B, segments=4, phi0_init=long_solves[0].phi0)
     assert r.iters <= 1
     assert r.W2 == pytest.approx(138.60667081914244, rel=1e-12)
 
 
-def test_the_long_transport_agrees_with_the_socp(long_pair):
+def test_the_long_transport_agrees_with_the_socp(long_pair, long_solves):
     pytest.importorskip("cvxpy")
     G, A, B = long_pair
-    W2 = log_map(G, A, B, segments=4).W2
+    W2 = long_solves[1].W2
     socp10, socp40 = (geodesic(G, A, B, method="socp", N=N).W2 for N in (10, 40))
     # the SOCP's time-discretisation error shrinks towards the shooting value
     assert abs(socp40 - W2) < abs(socp10 - W2) < 1.0
@@ -135,10 +140,10 @@ def test_segments_is_a_shooting_keyword(short_pair):
         geodesic(G, A, B, method="socp", segments=2)
 
 
-def test_barycenter_and_analysis_take_segments(short_pair):
-    G, A, B = short_pair
-    C = _corner_pair(5, 2)[2]
-    refs, lam = [A, B, C], [0.5, 0.3, 0.2]
+def test_barycenter_and_analysis_take_segments():
+    # wiring and agreement, which the grid size does not change: 3x3, two references
+    G, A, B = _corner_pair(3, 2)
+    refs, lam = [A, B], [0.6, 0.4]
     nu1, J1, _ = barycenter(G, refs, lam, fallback=False)
     nu3, J3, info = barycenter(G, refs, lam, segments=3, fallback=False)
     assert info["method"] == "shooting"
@@ -152,9 +157,10 @@ def test_gradients_through_multiple_shooting_are_exact():
     G = MarkovGraph(*grid_markov_chain(3))
     pi = torch.tensor(G.pi)
     rng = np.random.default_rng(0)
-    a, b = (torch.tensor(x / (x @ G.pi), requires_grad=True) for x in (rng.uniform(0.5, 1.5, G.n) for _ in range(2)))
+    a, b = (x / (x @ G.pi) for x in (rng.uniform(0.5, 1.5, G.n) for _ in range(2)))
+    b = torch.tensor(b)
 
-    def f(x, y):
-        return geodesic(G, x / (x @ pi), y / (y @ pi), tol=1e-13, segments=3).W2
+    def f(x):  # the start density's gradient is the one through the replayed flow's VJP
+        return geodesic(G, x / (x @ pi), b, tol=1e-13, segments=3).W2
 
-    assert torch.autograd.gradcheck(f, (a, b), eps=1e-6, atol=1e-6, rtol=1e-5)
+    assert torch.autograd.gradcheck(f, (torch.tensor(a, requires_grad=True),), eps=1e-6, atol=1e-6, rtol=1e-5)

@@ -308,6 +308,17 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     for far-apart concentrated endpoints, it is halved until the first shot
     survives.
 
+    ``segments`` > 1 solves by multiple shooting (shooting.multiple): Newton
+    for the state at the start of each of that many segments of the
+    integrator's step grid. It solves the same discrete problem, so the
+    answer agrees with single shooting's to Newton's tolerance; what changes
+    is the cost. A long transport needs fewer Newton steps -- 8 at K=4 against
+    19 for 10x10 corner bumps -- but each step carries about twice the
+    tangents, so a short transport costs more (see the README's table). A
+    ``phi0_init`` warm-starts it by one sweep of the flow, cut at the segment
+    starts; if that sweep hits the positivity floor, the default start is
+    used. The result's ``starts`` holds the solved segment start states.
+
     Returns a LogMapResult. Raises ShootingError if Newton has not reached
     ``tol`` after ``maxiters`` steps, the line search fails, or no admissible
     initial potential exists; the SOCP is the fallback in every case, or

@@ -245,7 +245,7 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
         if not np.all(np.isfinite(delta)):
             raise ShootingError(f"log_map(segments={K}): singular Newton system. Fall back to method='socp'.")
         alpha, accepted = 1.0, False
-        for _ in range(20):
+        for _ in range(12):  # single shooting's budget: both give up at the same step length
             x_try = x + alpha * delta
             try:
                 R_try, schedules_try = system.residual(x_try)
