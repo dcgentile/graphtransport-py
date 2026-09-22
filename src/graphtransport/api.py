@@ -30,6 +30,7 @@ vectors. The Sinkhorn method converts to probability vectors internally.
 
 from __future__ import annotations
 
+import sys
 import time
 import warnings
 from dataclasses import dataclass
@@ -465,9 +466,10 @@ def _analysis_shooting(G: MarkovGraph, target, refs, *, fallback: bool = True, f
 
 
 def _is_torch(*values) -> bool:
-    import torch
-
-    return any(isinstance(v, torch.Tensor) for v in values)
+    # without torch loaded no value can be a tensor; checking first keeps a
+    # numpy-only session (the SOCP, say) from importing torch here
+    torch = sys.modules.get("torch")
+    return torch is not None and any(isinstance(v, torch.Tensor) for v in values)
 
 
 def _as_float64_tensor(value, name: str):
@@ -510,6 +512,14 @@ def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what:
         sol = _solution_to_torch(GEODESIC_METHODS[method](G, a, b, **kwargs))
         return sol.W2 if cost_only else sol
 
+    if needs_grad and not G.mean.has_torch_autodiff:
+        # the numpy-backed defaults carry no autograd graph through theta: the
+        # gradient would come back silently incomplete
+        raise TypeError(
+            f"{what}: gradients need a mean with torch versions of theta and partial_s; {G.mean!r} has numpy "
+            "methods only (enough for shooting without gradients). Implement torch_theta and torch_partial_s, "
+            "or detach the inputs."
+        )
     fallback = kwargs.pop("fallback", True)
     floor_rtol = kwargs.pop("floor_rtol", 1e-6)
     solve = transport_cost_shooting_torch if cost_only else geodesic_shooting_torch

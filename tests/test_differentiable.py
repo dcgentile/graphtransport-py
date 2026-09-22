@@ -163,3 +163,22 @@ def test_barycenter_and_analysis_do_not_take_tensors_yet(grid4):
         barycenter(grid4, [torch.tensor(a), b], [0.5, 0.5])
     with pytest.raises(TypeError, match="analysis does not take torch tensors yet"):
         analysis(grid4, torch.tensor(a), [a, b])
+
+
+def test_a_numpy_only_mean_refuses_gradients_but_runs_without_them():
+    # its torch versions evaluate numpy, so no gradient flows through theta
+    from graphtransport import AdmissibleMean
+
+    class NumpyOnly(AdmissibleMean):
+        def __call__(self, s, t):
+            return ((np.sqrt(s) + np.sqrt(t)) / 2) ** 2
+
+        def partial_s(self, s, t):
+            return (np.sqrt(s) + np.sqrt(t)) / (2 * np.sqrt(s))
+
+    G = MarkovGraph(*grid_markov_chain(3), mean=NumpyOnly())
+    a, b = _pair(G, 16)
+    with pytest.raises(TypeError, match="gradients need a mean with torch versions"):
+        transport_cost(G, torch.tensor(a, requires_grad=True), torch.tensor(b))
+    W = transport_cost(G, torch.tensor(a), torch.tensor(b))
+    assert W.item() == pytest.approx(transport_cost(G, a, b), rel=1e-10)
