@@ -19,7 +19,7 @@ from graphtransport import (
     triangle_markov_chain,
 )
 from graphtransport.graph import graph_gradient
-from graphtransport.shooting import ShootingError
+from graphtransport.shooting import ShootingError, analyze_shooting, barycenter_shooting
 
 
 def _density(G, rng, offset=0.5):
@@ -334,3 +334,30 @@ def test_stalled_is_a_status_not_an_error(grid4):
     # entry than the iterations and stay the same length
     assert len(info["J_hist"]) == len(info["grad_hist"]) == info["iters"] + 1
     assert info["grad_hist"][-1] < info["grad_hist"][0]
+
+
+# ----- the public shooting functions, called directly (no API wrapper) -----
+
+
+@pytest.mark.parametrize(
+    "call, name",
+    [
+        (lambda G, A, B, Z: barycenter_shooting(G, [A, Z], [0.5, 0.5]), r"refs\[1\] violates the positivity floor"),
+        (lambda G, A, B, Z: analyze_shooting(G, Z, [A, B]), "target violates the positivity floor"),
+        (lambda G, A, B, Z: analyze_shooting(G, A, [B, Z]), r"refs\[1\] violates the positivity floor"),
+        (lambda G, A, B, Z: barycenter_shooting(G, [A, 2 * B], [0.5, 0.5]), r"refs\[1\] must be a probability density"),
+    ],
+    ids=["barycenter-ref", "analysis-target", "analysis-ref", "barycenter-mass"],
+)
+def test_direct_calls_name_the_callers_argument(grid4, call, name):
+    # Both used to rely on log_map's check, which names its own parameters:
+    # a bad reference came back as "target" and a bad base point as "nu".
+    G, A, B, _ = grid4
+    with pytest.raises(ValueError, match=name):
+        call(G, A, B, _with_zeros(G, A))
+
+
+def test_direct_barycenter_still_exempts_a_zero_weight_reference(grid4):
+    G, A, B, _ = grid4
+    _, _, info = barycenter_shooting(G, [A, B, _with_zeros(G, A)], [0.5, 0.5, 0.0])
+    assert info["status"] == "converged"

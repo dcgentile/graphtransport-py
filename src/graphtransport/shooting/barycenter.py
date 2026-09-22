@@ -10,7 +10,7 @@ import warnings
 import numpy as np
 
 from graphtransport.graph import MarkovGraph
-from graphtransport.shooting.explog import ShootingError, exp_map, log_map
+from graphtransport.shooting.explog import ShootingError, _check_endpoint, exp_map, log_map
 from graphtransport.shooting.hamiltonian import PositivityFloorError, _check_interior, hamiltonian, rho_floor
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,9 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
         raise ValueError("at least one lam_i must be > 0")
 
     floor_val = rho_floor(G, rtol=floor_rtol)
+    # checked here, under the caller's names: log_map would call each "target"
+    for i in active:
+        refs[i] = _check_endpoint(G, refs[i], floor_val, f"refs[{i}]")
     if init is None:
         nu = sum(lam[i] * refs[i] for i in active)
     else:
