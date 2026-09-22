@@ -25,10 +25,42 @@ here take and return numpy arrays.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import torch
 
 from graphtransport.graph import MarkovGraph, graph_gradient
+
+
+class TorchThreadsWarning(UserWarning):
+    """torch is using more than one thread for the shooting solver's small
+    operations, which costs CPU time without speeding them up. Issued once per
+    process; filter it to silence it."""
+
+
+_threads_warned = False
+
+
+def _warn_about_threads() -> None:
+    """Measured on the test suite (graphs up to 16x16): the same wall time
+    with torch's default 10 threads as with one, at 3.6x the CPU time. Several
+    solves run in parallel would oversubscribe the machine. Changing torch's
+    global thread count is the caller's decision, so this only says so."""
+    global _threads_warned
+    if _threads_warned:
+        return
+    _threads_warned = True
+    threads = torch.get_num_threads()
+    if threads > 1:
+        warnings.warn(
+            f"torch is using {threads} threads. The shooting solver runs many small torch operations, which "
+            "gain nothing from threads at graph sizes up to a few hundred nodes but cost several times the CPU "
+            "time (3.6x on the test suite). Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially "
+            "when running solves in parallel. Filter TorchThreadsWarning to silence this.",
+            TorchThreadsWarning,
+            stacklevel=3,
+        )
 
 
 class PositivityFloorError(Exception):
@@ -98,8 +130,8 @@ def hamiltonian_flow(G: MarkovGraph, rho, phi, *, floor_rtol: float = 1e-6):
     -inf (partial_s(0, t) genuinely diverges) and just inside it the result is
     finite but meaningless, neither of which announces itself downstream.
 
-    The RK4 stages call the unchecked `_hamiltonian_flow` instead, so the
-    integrator still validates once per call rather than four times per step.
+    The integrator's RK4 stages call the unchecked torch flow instead, so it
+    still validates once per call rather than four times per step.
     """
     rho = _check_interior(G, rho, rho_floor(G, rtol=floor_rtol), "rho")
     return _hamiltonian_flow(G, rho, phi)
@@ -283,6 +315,7 @@ def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val:
     list of step lengths that step i was taken in (one entry unless it was
     bisected), and paths is (rho_path, phi_path), each (n, nsteps + 1), if
     ``path`` else None."""  # fmt: skip
+    _warn_about_threads()
     schedule = []
     rho_path, phi_path = [rho], [phi]
     h = T / nsteps

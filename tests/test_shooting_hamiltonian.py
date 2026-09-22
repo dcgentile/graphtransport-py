@@ -1,4 +1,5 @@
 import importlib
+import warnings
 
 import numpy as np
 import pytest
@@ -279,3 +280,31 @@ def test_time_reversal_returns_to_the_start():
     rho_back, phi_back = (p[:, -1] for p in integrate_hamiltonian(G, rho_mid, -phi_mid, nsteps=200))
     np.testing.assert_allclose(rho_back, rho0, atol=1e-10)
     np.testing.assert_allclose(-phi_back, phi0, atol=1e-10)
+
+
+def test_more_than_one_torch_thread_warns_once():
+    import torch
+
+    from graphtransport.shooting import TorchThreadsWarning
+
+    # the module, not the function graphtransport.shooting exports under the same name
+    ham = importlib.import_module("graphtransport.shooting.hamiltonian")
+
+    G = _two_node()
+    rho0, phi0 = np.array([1.2, 0.8]), np.array([0.1, -0.1])
+    threads = torch.get_num_threads()
+    try:
+        torch.set_num_threads(2)
+        ham._threads_warned = False
+        with pytest.warns(TorchThreadsWarning, match="torch is using 2 threads.*set_num_threads"):
+            integrate_hamiltonian(G, rho0, phi0, nsteps=5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TorchThreadsWarning)
+            integrate_hamiltonian(G, rho0, phi0, nsteps=5)  # once per process
+        torch.set_num_threads(1)
+        ham._threads_warned = False
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TorchThreadsWarning)
+            integrate_hamiltonian(G, rho0, phi0, nsteps=5)  # one thread: nothing to say
+    finally:
+        torch.set_num_threads(threads)

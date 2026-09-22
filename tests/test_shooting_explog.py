@@ -255,6 +255,36 @@ def test_the_jacobian_is_exact():
     np.testing.assert_allclose(exact, central, atol=1e-8 * np.abs(central).max())
 
 
+def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
+    # The replay of a recorded schedule exists for shots that bisect a step
+    # near the floor. Seed 1272 gives one: a node at ~1e-4 and a strong
+    # potential, one of 150 steps halved, the same schedule under every
+    # perturbation below (checked, so the central differences stay on the
+    # shot's branch of the piecewise-smooth flow map).
+    from graphtransport.shooting import explog
+    from graphtransport.shooting.hamiltonian import _as_tensor, rho_floor
+
+    G = MarkovGraph(*grid_markov_chain(3))
+    n, floor = G.n, rho_floor(G)
+    rng = np.random.default_rng(1272)
+    nu = rng.uniform(0.5, 1.5, n)
+    nu[rng.integers(n)] = 10 ** rng.uniform(-6, -3)
+    nu /= nu @ G.pi
+    z = rng.standard_normal(n - 1) * 10 ** rng.uniform(-1, 1.5)
+    nu_t = _as_tensor(nu)
+
+    _, schedule = explog._shoot(G, nu_t, z, 150, floor)
+    assert max(len(steps) for steps in schedule) > 1  # a step was halved
+    exact = explog._shooting_jacobian(G, nu_t, z, schedule)
+    h, eye = 1e-6, np.eye(n - 1)
+    for j in range(n - 1):
+        (up, s_up), (down, s_down) = (explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
+                                      explog._shoot(G, nu_t, z - h * eye[j], 150, floor))  # fmt: skip
+        assert s_up == schedule and s_down == schedule
+        central = (up.numpy() - down.numpy())[: n - 1] / (2 * h)
+        np.testing.assert_allclose(exact[:, j], central, atol=1e-7 * np.abs(exact).max())
+
+
 # ----- analysis and the mollified fallback -----
 
 

@@ -20,6 +20,8 @@ socp = ["cvxpy", "clarabel"]
 pythonpath = ["tests"]
 addopts = "-m 'not slow'"
 markers = ["slow: long-running cross-checks (tens of seconds each); run with -m \"\""]
+# the suite runs the solver many times; the warning's own test uses pytest.warns
+filterwarnings = ["ignore::graphtransport.shooting.hamiltonian.TorchThreadsWarning"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/graphtransport"]

@@ -21,13 +21,22 @@ there, which may be +inf, except at (0, 0) where no limit exists and it is
 nan. A negative argument is outside the domain and gives nan. None of
 these cases emits a numpy warning.
 
-Each mean also has torch versions, torch_theta and torch_partial_s, used by
-the shooting flow so that torch's autodiff can differentiate it exactly. They
-are evaluated only in the interior (s, t > 0: the flow never runs at or below
-the positivity floor), so they skip the boundary conventions above, and they
-are written so no branch produces nan or inf there: torch.where passes the
-gradient of the branch it discards, and a nan in that branch would poison the
-derivative.
+Each mean also has torch versions -- torch_theta, torch_partial_s and
+torch_partial_s_grad (the second derivatives) -- used by the shooting flow and
+its exact Jacobian. They are evaluated only in the interior (s, t > 0: the
+flow never runs at or below the positivity floor), so they skip the boundary
+conventions above, and they are written so no branch produces nan or inf
+there: torch.where passes the gradient of the branch it discards, and a nan
+in that branch would poison the derivative.
+
+A user-defined mean needs only __call__ and partial_s. The base class then
+evaluates those numpy methods for the torch versions and takes the second
+derivatives by central differences (relative accuracy ~1e-10, not exact), so
+shooting works; the differentiable API, which autodiffs through theta, needs
+real torch versions (has_torch_autodiff).
+
+torch is imported lazily, inside these methods, so importing the package does
+not load it.
 """
 
 from __future__ import annotations
@@ -35,8 +44,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import numpy as np
-import torch
-from torch.func import jvp
 
 # Below this |s/t - 1| the logarithmic mean and its derivative switch to a
 # Taylor series so both are smooth through s == t (0/0 in the closed form).
@@ -48,6 +55,14 @@ def _densities(s, t):
     s, t = np.broadcast_arrays(np.asarray(s, dtype=float), np.asarray(t, dtype=float))
     outside = (s < 0) | (t < 0)
     return np.where(outside, np.nan, s), np.where(outside, np.nan, t)
+
+
+def _via_numpy(f, s, t):
+    """f(s, t) for a numpy mean method, on torch tensors (detached)."""
+    import torch
+
+    value = f(s.detach().cpu().numpy(), t.detach().cpu().numpy())
+    return torch.as_tensor(np.asarray(value, dtype=float), dtype=s.dtype)
 
 
 class AdmissibleMean(ABC):
@@ -63,31 +78,42 @@ class AdmissibleMean(ABC):
         """d theta / d t (s, t), i.e. partial_s(t, s) by symmetry."""
         return self.partial_s(t, s)
 
-    def torch_theta(self, s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """theta(s, t) on torch tensors, for s, t > 0."""
-        raise TypeError(
-            f"{type(self).__name__} has no torch implementation (torch_theta and torch_partial_s), which the "
-            "shooting method needs; method='socp' does not."
-        )
+    def torch_theta(self, s, t):
+        """theta(s, t) on torch tensors, for s, t > 0. This default evaluates
+        the numpy __call__, so no gradient flows through it."""
+        return _via_numpy(self.__call__, s, t)
 
-    def torch_partial_s(self, s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """d theta / d s (s, t) on torch tensors, for s, t > 0."""
-        raise TypeError(
-            f"{type(self).__name__} has no torch implementation (torch_theta and torch_partial_s), which the "
-            "shooting method needs; method='socp' does not."
-        )
+    def torch_partial_s(self, s, t):
+        """d theta / d s (s, t) on torch tensors, for s, t > 0. This default
+        evaluates the numpy partial_s, so no gradient flows through it."""
+        return _via_numpy(self.partial_s, s, t)
 
-    def torch_partial_s_grad(self, s: torch.Tensor, t: torch.Tensor):
+    def torch_partial_s_grad(self, s, t):
         """(d/ds, d/dt) of partial_s at (s, t), for s, t > 0: the second
         derivatives the shooting Jacobian needs.
 
-        This default differentiates torch_partial_s with torch's autodiff, once:
-        every admissible mean is 1-homogeneous, so partial_s is 0-homogeneous
-        and Euler's relation s d/ds + t d/dt = 0 gives the second derivative
-        from the first. Means with a simple closed form override it; an
-        autodiff call per flow evaluation is the Jacobian's main cost."""
-        d_s = jvp(self.torch_partial_s, (s, t), (torch.ones_like(s), torch.zeros_like(t)))[1]
+        Every admissible mean is 1-homogeneous, so partial_s is 0-homogeneous
+        and Euler's relation s d/ds + t d/dt = 0 gives d/dt from d/ds. This
+        default takes d/ds with torch's autodiff when the mean has torch
+        versions, once per call, and otherwise by a central difference of the
+        numpy partial_s (relative accuracy ~1e-10). Means with a simple closed
+        form override it; this call is the Jacobian's main cost."""
+        import torch
+
+        if self.has_torch_autodiff:
+            from torch.func import jvp
+
+            d_s = jvp(self.torch_partial_s, (s, t), (torch.ones_like(s), torch.zeros_like(t)))[1]
+        else:
+            h = 1e-5 * s
+            d_s = (_via_numpy(self.partial_s, s + h, t) - _via_numpy(self.partial_s, s - h, t)) / (2 * h)
         return d_s, -s * d_s / t
+
+    @property
+    def has_torch_autodiff(self) -> bool:
+        """Whether torch_theta and torch_partial_s are torch code (autodiff
+        flows through them) rather than the numpy-backed defaults."""
+        return type(self).torch_theta is not AdmissibleMean.torch_theta
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
@@ -112,13 +138,13 @@ class GeometricMean(AdmissibleMean):
             return np.sqrt(t / s) / 2
 
     def torch_theta(self, s, t):
-        return torch.sqrt(s * t)
+        return (s * t).sqrt()
 
     def torch_partial_s(self, s, t):
-        return torch.sqrt(t / s) / 2
+        return (t / s).sqrt() / 2
 
     def torch_partial_s_grad(self, s, t):
-        return -torch.sqrt(t / s) / (4 * s), 1 / (4 * torch.sqrt(s * t))
+        return -(t / s).sqrt() / (4 * s), 1 / (4 * (s * t).sqrt())
 
 
 class ArithmeticMean(AdmissibleMean):
@@ -136,10 +162,10 @@ class ArithmeticMean(AdmissibleMean):
         return (s + t) / 2
 
     def torch_partial_s(self, s, t):
-        return torch.full_like(s + t, 0.5)
+        return (s + t) * 0 + 0.5
 
     def torch_partial_s_grad(self, s, t):
-        zero = torch.zeros_like(s + t)
+        zero = (s + t) * 0
         return zero, zero
 
 
@@ -229,10 +255,14 @@ class LogarithmicMean(AdmissibleMean):
     # branch contributes a zero gradient rather than a nan.
 
     def torch_theta(self, s, t):
+        import torch
+
         lo, hi = torch.minimum(s, t), torch.maximum(s, t)
         return hi * self._torch_branches(lo / hi)[0]
 
     def torch_partial_s(self, s, t):
+        import torch
+
         below = s <= t
         x = torch.where(below, s / t, t / s)
         _, f_prime, f_minus_x_f_prime = self._torch_branches(x)
@@ -241,6 +271,8 @@ class LogarithmicMean(AdmissibleMean):
     @staticmethod
     def _torch_branches(x):
         """(f, f', f - x f') at x in (0, 1]."""
+        import torch
+
         d = x - 1
         near = torch.abs(d) < _LOG_SERIES_SWITCH
         xc = torch.where(near, torch.full_like(x, 0.5), x)
@@ -302,6 +334,8 @@ class QuadLogMean(AdmissibleMean):
                 (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1))  # fmt: skip
 
     def _torch_nodes(self, like):
+        import torch
+
         return (torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
                 torch.as_tensor(self.w, dtype=like.dtype, device=like.device))  # fmt: skip
 

@@ -202,13 +202,37 @@ def test_torch_second_derivatives_match_autodiff(theta: AdmissibleMean):
     np.testing.assert_allclose(got_t.numpy(), d_t.numpy(), rtol=1e-8, atol=1e-12 * float(d_t.abs().max()))
 
 
-def test_a_mean_without_torch_versions_says_what_shooting_needs():
-    class Custom(AdmissibleMean):
-        def __call__(self, s, t):
-            return np.sqrt(s * t)
+class _NumpyOnlyMean(AdmissibleMean):
+    """((sqrt s + sqrt t) / 2)^2: a user's own mean, numpy methods only."""
 
-        def partial_s(self, s, t):
-            return np.sqrt(t / s) / 2
+    def __call__(self, s, t):
+        return ((np.sqrt(s) + np.sqrt(t)) / 2) ** 2
 
-    with pytest.raises(TypeError, match="Custom has no torch implementation.*method='socp'"):
-        Custom().torch_theta(torch.ones(2), torch.ones(2))
+    def partial_s(self, s, t):
+        return (np.sqrt(s) + np.sqrt(t)) / (2 * np.sqrt(s))
+
+
+def test_a_numpy_only_mean_gets_numpy_backed_torch_versions():
+    theta = _NumpyOnlyMean()
+    assert not theta.has_torch_autodiff and GeometricMean().has_torch_autodiff
+    s, t = _pairs(seed=5)
+    S, T = torch.tensor(s), torch.tensor(t)
+    np.testing.assert_allclose(theta.torch_theta(S, T).numpy(), theta(s, t))
+    np.testing.assert_allclose(theta.torch_partial_s(S, T).numpy(), theta.partial_s(s, t))
+    # second derivatives by central differences: d/ds partial_s = -sqrt(t) / (4 s^1.5), then Euler for d/dt
+    d_s, d_t = theta.torch_partial_s_grad(S, T)
+    np.testing.assert_allclose(d_s.numpy(), -np.sqrt(t) / (4 * s**1.5), rtol=1e-8)
+    np.testing.assert_allclose(d_t.numpy(), 1 / (4 * np.sqrt(s * t)), rtol=1e-8)
+
+
+def test_a_numpy_only_mean_works_with_shooting():
+    # a regression caught in review: it raised a TypeError when the flow moved to torch
+    from graphtransport import MarkovGraph, geodesic, grid_markov_chain
+
+    G = MarkovGraph(*grid_markov_chain(3), mean=_NumpyOnlyMean())
+    rng = np.random.default_rng(0)
+    a, b = rng.uniform(0.5, 1.5, G.n), rng.uniform(0.5, 1.5, G.n)
+    a, b = a / (a @ G.pi), b / (b @ G.pi)
+    sol = geodesic(G, a, b)
+    np.testing.assert_allclose(sol.rho[:, -1], b, atol=1e-9)
+    assert sol.W2 == pytest.approx(0.2873409639733358, rel=1e-8)  # main, before the torch flow
