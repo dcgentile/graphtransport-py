@@ -102,20 +102,38 @@ def hamiltonian_flow(G: MarkovGraph, rho, phi, *, floor_rtol: float = 1e-6):
 
 def _hamiltonian_flow(G: MarkovGraph, rho, phi):
     """hamiltonian_flow without the domain check; rho must already be a float
-    array strictly above the floor."""
+    array strictly above the floor.
+
+    rho and phi may carry a trailing batch axis, shape (n, k): column j is an
+    independent state. log_map uses this to integrate every column of its
+    finite-difference Jacobian in one pass.
+    """
     rho = np.asarray(rho, dtype=float)
     grad_phi = graph_gradient(G, phi)
     s, t = _edge_densities(G, rho)
     rho_dot = -graph_divergence(G, G.mean(s, t) * grad_phi)
 
-    # Q[x, y] == kappa_e / pi[x] and Q[y, x] == kappa_e / pi[y] by the
-    # definition of kappa, so the rates need no sparse lookup per edge.
-    x, y = G.E[:, 0], G.E[:, 1]
     half_grad_sq = 0.5 * grad_phi**2
-    phi_dot = np.zeros(G.n, dtype=float)
-    np.add.at(phi_dot, x, -G.mean.partial_s(s, t) * half_grad_sq * G.kappa / G.pi[x])
-    np.add.at(phi_dot, y, -G.mean.partial_s(t, s) * half_grad_sq * G.kappa / G.pi[y])
+    to_x, to_y = _scatter(G)
+    phi_dot = -(to_x @ (G.mean.partial_s(s, t) * half_grad_sq)) - (to_y @ (G.mean.partial_s(t, s) * half_grad_sq))
     return rho_dot, phi_dot
+
+
+def _scatter(G: MarkovGraph):
+    """Sparse (n, |E|) matrices sending an edge quantity to its tail x, weighted
+    by Q[x, y], and to its head y, weighted by Q[y, x] -- exactly the negative
+    and positive parts of the incidence matrix G.D. As mat-muls rather than
+    np.add.at they are about 12x faster, which matters because log_map's
+    Jacobian evaluates the flow thousands of times on (|E|, n) batches.
+
+    Cached on the graph on first use. with_mean copies the instance dict, so
+    a graph that differs only in its mean shares them, correctly: they depend
+    on Q and pi alone."""
+    cached = G.__dict__.get("_flow_scatter")
+    if cached is None:
+        cached = ((-G.D.minimum(0)).tocsr(), G.D.maximum(0).tocsr())
+        G.__dict__["_flow_scatter"] = cached
+    return cached
 
 
 def _rk4_step(G: MarkovGraph, rho, phi, h: float):
@@ -192,3 +210,17 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
         rho, phi = _advance_interval(G, rho, phi, h, floor_val, max_halvings)
         rho_path[:, i + 1], phi_path[:, i + 1] = rho, phi
     return rho_path, phi_path
+
+
+def _integrate_end(G: MarkovGraph, rho0, phi0, nsteps: int, T: float, floor_val: float, max_halvings: int = 4):
+    """The flow's end state only, without storing the path and without the
+    argument checks (callers have done them). Accepts a trailing batch axis;
+    the columns share one step schedule, so if any column needs a step bisected
+    they all take the bisected step. That keeps a batch of nearby trajectories
+    on the same branch of the piecewise-smooth discrete flow map, which is what
+    makes finite differences across the batch meaningful."""
+    rho, phi = np.asarray(rho0, dtype=float), np.asarray(phi0, dtype=float)
+    h = T / nsteps
+    for _ in range(nsteps):
+        rho, phi = _advance_interval(G, rho, phi, h, floor_val, max_halvings)
+    return rho, phi

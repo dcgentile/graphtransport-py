@@ -8,6 +8,18 @@ Everything here needs **strictly positive** densities. For data supported on
 part of the graph, use the SOCP (exact) instead.
 """
 
+from graphtransport.shooting.explog import (
+    LogMapResult,
+    MollifiedLogMapResult,
+    ShootingError,
+    analyze_shooting,
+    exp_map,
+    log_map,
+    log_map_mollified,
+    momentum_to_potential,
+    solve_weighted_laplacian,
+    weighted_laplacian,
+)
 from graphtransport.shooting.hamiltonian import (
     PositivityFloorError,
     hamiltonian,
@@ -17,7 +29,17 @@ from graphtransport.shooting.hamiltonian import (
 )
 
 __all__ = [
+    "LogMapResult",
+    "MollifiedLogMapResult",
     "PositivityFloorError",
+    "ShootingError",
+    "analyze_shooting",
+    "exp_map",
+    "log_map",
+    "log_map_mollified",
+    "momentum_to_potential",
+    "solve_weighted_laplacian",
+    "weighted_laplacian",
     "hamiltonian",
     "hamiltonian_flow",
     "integrate_hamiltonian",
