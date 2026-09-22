@@ -44,9 +44,15 @@ def default_solver() -> str:
 
 def solve_conic(problem, solver, what: str, *, check: bool = True, hint: str = "", **solver_kwargs):
     """Solve a cvxpy problem and, with check=True, raise unless the solver
-    reports an optimal (or inaccurate-optimal) solution, mirroring the Julia
-    package's _check_solved: an iterate left behind by an iteration limit or
-    slow progress is not a solution and need not even have unit mass.
+    reports an optimal solution: an iterate left behind by an iteration limit
+    or slow progress is not a solution and need not even have unit mass.
+
+    This is stricter than the Julia package's _check_solved, which also
+    accepts ALMOST_OPTIMAL (cvxpy's OPTIMAL_INACCURATE). Such an iterate can be
+    far from optimal: a four-reference barycenter of 16x16 digit images at
+    N=10 came back optimal_inaccurate with J = 9.31, where N=8 and N=12 reach
+    OPTIMAL at J = 6.94 and 6.95, and analysis recovered its weights wrong by
+    up to 0.09. check=False still returns it, with its status.
 
     `hint` is appended to the error; each caller supplies advice that applies
     to its own arguments."""
@@ -54,9 +60,16 @@ def solve_conic(problem, solver, what: str, *, check: bool = True, hint: str = "
     solver = default_solver() if solver is None else solver
     problem.solve(solver=solver, **solver_kwargs)
     status = problem.status
-    if check and status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
+    if check and status != cp.OPTIMAL:
+        if status == cp.OPTIMAL_INACCURATE:
+            reason = (
+                "reached only reduced accuracy; such an iterate can be far from optimal, so it is not accepted. "
+                "A different N often solves to optimality."
+            )
+        else:
+            reason = "the iterate is not a solution."
         raise RuntimeError(
-            f"{what}: solver {solver} stopped with status {status!r} (not optimal); the iterate is "
-            f"not a solution.{' ' + hint if hint else ''}"
+            f"{what}: solver {solver} stopped with status {status!r} (not optimal): {reason}"
+            f"{' ' + hint if hint else ''}"
         )
     return status
