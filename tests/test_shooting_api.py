@@ -275,8 +275,8 @@ def test_near_boundary_failure_falls_back_too():
 
 
 def _long_transport_pair():
-    # both endpoints well inside (smallest density 0.37), but corner to corner
-    # on a 10x10 grid is too long for single shooting: the path thins to 0.05
+    # corner to corner on a 10x10 grid, smallest density 0.37; the SOCP's path
+    # between them thins to 0.05
     k = 10
     G = MarkovGraph(*grid_markov_chain(k))
     xy = np.array([(i % k, i // k) for i in range(G.n)], dtype=float)
@@ -288,20 +288,32 @@ def _long_transport_pair():
     return G, bump((0, 0)), bump((k - 1, k - 1))
 
 
-def test_a_long_transport_failure_names_both_causes_not_the_boundary():
+def test_a_long_transport_converges_without_falling_back():
+    # The forward-difference Jacobian stalled here (line search failed at
+    # iteration 6) and the default method fell back to the SOCP; with the
+    # exact Jacobian shooting converges, as Julia does, in 19 iterations.
     G, A, B = _long_transport_pair()
-    with pytest.raises(ShootingError, match=r"smallest input density is 3\.7e-01, in rhoA\. .*mass travels far") as info:
-        transport_cost(G, A, B, fallback=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ShootingFallbackWarning)
+        W = transport_cost(G, A, B)
+    assert W**2 == pytest.approx(138.60667081914244, rel=1e-10)  # Julia's log_map W2
+
+
+def test_running_out_of_iterations_names_both_causes_not_the_boundary():
+    G, A, B = _long_transport_pair()
+    with pytest.raises(ShootingError, match=r"did not converge in 2 iterations.*smallest input density is "
+                                            r"3\.7e-01, in rhoA\. .*maxiters=") as info:  # fmt: skip
+        transport_cost(G, A, B, fallback=False, maxiters=2)
     assert "near the boundary" not in str(info.value)
 
 
-def test_a_long_transport_failure_falls_back_with_the_real_error():
+def test_running_out_of_iterations_falls_back_with_the_real_error():
     pytest.importorskip("cvxpy")
     G, A, B = _long_transport_pair()
-    match = (r"did not converge \(log_map: line search failed at iteration \d+ \(residual [^)]+\); "
+    match = (r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
              r"smallest input density 3\.7e-01, in rhoA\)")
     with pytest.warns(ShootingFallbackWarning, match=match):
-        w = transport_cost(G, A, B)
+        w = transport_cost(G, A, B, maxiters=2)
     assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
 
 

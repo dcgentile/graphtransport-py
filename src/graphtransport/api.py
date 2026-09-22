@@ -4,11 +4,10 @@ One public function per task with a ``method`` keyword selecting the
 numerical algorithm:
 
 - ``"shooting"`` (default): Newton shooting on the Hamiltonian flow. Exact in
-  time, no optional dependency, every AdmissibleMean; requires **strictly
-  positive** densities, can fail on long transports between densities well
-  away from zero, and falls back to the SOCP with a ShootingFallbackWarning
-  when it cannot take the data or fails on it (``fallback=False`` raises
-  instead).
+  time, no conic solver, every AdmissibleMean; requires **strictly
+  positive** densities, and falls back to the SOCP with a
+  ShootingFallbackWarning when it cannot take the data or fails on it
+  (``fallback=False`` raises instead).
 - ``"socp"``: a second-order-cone program (needs ``graphtransport[socp]``).
   Handles densities supported on part of the graph, which shooting cannot;
   time-discretisation error O(1/N).
@@ -18,11 +17,10 @@ numerical algorithm:
 
 The default diverges from the Julia package, which defaults to ``:socp``.
 What shooting offers is exactness in time and no conic solver, not speed:
-on n x n grids of 9 to 256 nodes the SOCP at its default N=10 was faster on
-every problem measured (see the README). Shooting also cannot take
-boundary-supported data, and single shooting is ill-conditioned when mass
-travels far; both are reasons to pass ``method="socp"``, and the fallback
-warning says so.
+the SOCP at its default N=10 is faster on the graphs measured (see the
+README). Shooting also cannot take boundary-supported data, and gets stiff
+as densities approach zero; both are reasons to pass ``method="socp"``, and
+the fallback warning says so.
 
 Densities: as in the Julia package, ``rhoA``, ``rhoB``, ``refs``, ``target``
 and returned barycenters are densities with respect to the graph's
@@ -287,7 +285,7 @@ class ShootingFallbackWarning(UserWarning):
 
     Raised by the default method when a density is not strictly positive, or
     when shooting fails on the data -- because a density is close to zero, or
-    because the transport is too long for single shooting. Filter it to
+    because Newton ran out of iterations (maxiters) on a hard transport. Filter it to
     silence the fallback, or escalate it with warnings.simplefilter("error",
     ShootingFallbackWarning); pass fallback=False to get the shooting error
     itself instead."""
@@ -333,12 +331,16 @@ class _explain_shooting_failure:
     Data that passes _check_shooting_density can still defeat shooting, for
     two reasons this cannot tell apart. A density close to zero makes the flow
     stiff: on a 5x5 grid, a row of nodes at 1e-4 solves and one at 1e-5 does
-    not. And a long geodesic makes single shooting ill-conditioned, whatever
-    the endpoints: on a 10x10 grid, two corner bumps whose smallest density is
-    0.37 fail, while the SOCP's path between them thins to 0.05, and Newton
-    stalls even when started from the SOCP's own potentials. So the message
-    reports the failure and the smallest input density, and names both
-    causes rather than guessing one."""
+    not (the line search fails). And a long transport through thin densities
+    can need more damped Newton steps than maxiters allows: on a 10x10 grid,
+    corner bumps over a floor of 1e-3 converge in 112 iterations, in Julia as
+    here, against the default 50. So the message reports the failure and the
+    smallest input density, and names both causes rather than guessing one.
+
+    (An earlier version blamed "the boundary" for every failure, then "long
+    transports making single shooting ill-conditioned". The long-transport
+    failures were the forward-difference Jacobian's; with the exact one,
+    Newton converges where Julia does.)"""
 
     def __init__(self, what: str, **densities):
         self.what, self.densities = what, densities
@@ -356,8 +358,8 @@ class _explain_shooting_failure:
         first_clause = re.split(r"[.;] ", str(exc), maxsplit=1)[0]
         err = ShootingError(
             f"{self.what}(method='shooting') failed: {exc} The smallest input density is {smallest}. Shooting "
-            "fails when densities come close to zero, and when mass travels far enough that single shooting is "
-            "ill-conditioned; method='socp' has neither limit."
+            "gets stiff as densities approach zero, where method='socp' has no such limit; a long transport "
+            "through thin densities may instead just need more Newton iterations (maxiters=, default 50)."
         )
         err.summary = f"method='shooting' did not converge ({first_clause}; smallest input density {smallest})"
         raise err from exc
@@ -573,7 +575,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     (shooting.geodesic_shooting), then the flow integrated for the path.
     Exact in time up to RK4 truncation; both endpoints must be strictly
     positive. If one is not, or shooting fails on them (densities close to
-    zero, or a transport too long for single shooting), this warns
+    zero, or a transport that needs more than maxiters Newton steps), this warns
     (ShootingFallbackWarning) and returns method="socp"'s answer at its
     default N=10 instead -- or raises, with ``fallback=False`` or
     without cvxpy installed. Keywords: ``fallback``, ``nsteps`` (integrator steps, default 150; rho
