@@ -100,7 +100,7 @@ def _check_method(method: str, table: dict, what: str):
 # to the method's signature.
 METHOD_KEYWORDS = {
     "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
-                           "log_tol", "init", "qp_method", "qp_solver", "fallback"}),
+                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback"}),
     "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
     "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
 }  # fmt: skip
@@ -119,6 +119,41 @@ def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
     if method == "shooting" and "N" in stray:
         hint = " Shooting is exact in time; its integrator's resolution is nsteps= (default 150)."
     raise TypeError(f"{what}: method={method!r} does not take {', '.join(described)}.{hint}")
+
+
+# METHOD_KEYWORDS is per method, and the shooting keywords differ between entry
+# points (h is barycenter's, phi0_inits analysis's), so a keyword valid for
+# another shooting entry point used to pass the check above and fail far away
+# as "analyze_shooting() got an unexpected keyword argument 'maxiters'". The
+# accepted sets are read from the functions each entry point calls, so they
+# cannot drift; fallback and floor_rtol belong to the API wrappers.
+_SHOOTING_WRAPPER_KEYWORDS = frozenset({"fallback", "floor_rtol"})
+
+
+def _shooting_entry_keywords(what: str) -> frozenset:
+    import inspect
+
+    from graphtransport.shooting import analyze_shooting, barycenter_shooting, geodesic_shooting
+
+    target = {"geodesic": geodesic_shooting, "transport_cost": _transport_cost_shooting,
+              "barycenter": barycenter_shooting, "analysis": analyze_shooting}[what]  # fmt: skip
+    params = inspect.signature(target).parameters.values()
+    return frozenset(p.name for p in params if p.kind is p.KEYWORD_ONLY) | _SHOOTING_WRAPPER_KEYWORDS
+
+
+def _check_shooting_kwargs(what: str, kwargs: dict) -> None:
+    accepted = _shooting_entry_keywords(what)
+    stray = sorted(k for k in kwargs if k not in accepted)
+    if stray:
+        raise TypeError(
+            f"{what}(method='shooting') does not take {', '.join(stray)}; it takes {', '.join(sorted(accepted))}."
+        )
+
+
+# The keyword that sets each entry point's log-map Newton budget, for the
+# advice on a solve that ran out of iterations.
+_NEWTON_BUDGET = {"geodesic": "maxiters", "transport_cost": "maxiters", "barycenter": "log_maxiters",
+                  "analysis": "maxiters"}  # fmt: skip
 
 
 # Input checks shared by every method. They live in the public entry points,
@@ -356,12 +391,15 @@ class _explain_shooting_failure:
         name, rho = min(self.densities.items(), key=lambda item: float(np.min(item[1])))
         smallest = f"{float(np.min(rho)):.1e}, in {name}"
         first_clause = re.split(r"[.;] ", str(exc), maxsplit=1)[0]
+        budget = _NEWTON_BUDGET[self.what]
         err = ShootingError(
             f"{self.what}(method='shooting') failed: {exc} The smallest input density is {smallest}. Shooting "
             "gets stiff as densities approach zero, where method='socp' has no such limit; a long transport "
-            "through thin densities may instead just need more Newton iterations (maxiters=, default 50)."
+            f"through thin densities may instead just need more Newton iterations ({budget}=, default 50)."
         )
         err.summary = f"method='shooting' did not converge ({first_clause}; smallest input density {smallest})"
+        # log_map's "Newton did not converge in k iterations", directly or as the cause barycenter reports
+        err.retry_hint = f"{budget}= (default 50)" if "Newton did not converge in" in str(exc) else None
         raise err from exc
 
 
@@ -392,10 +430,12 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
             summary = f"method='shooting' cannot take this data: {exc.summary}"
         else:
             summary = getattr(exc, "summary", str(exc))
+        retry = getattr(exc, "retry_hint", None)
+        retry = f" Newton ran out of iterations, so raising {retry} may let shooting solve it exactly." if retry else ""
         warnings.warn(
             f"{what}: {summary}. Falling back to method='socp' with its "
             "default N=10 (time-discretisation error O(1/N)); pass method='socp' to choose N, or fallback=False "
-            "to raise instead.",
+            f"to raise instead.{retry}",
             ShootingFallbackWarning,
             stacklevel=4,  # _with_fallback < the method wrapper < the entry point < the caller
         )
@@ -616,6 +656,8 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     """
     _check_method(method, GEODESIC_METHODS, "geodesic")
     _check_kwargs(method, kwargs, "geodesic")
+    if method == "shooting":
+        _check_shooting_kwargs("geodesic", kwargs)
     if _is_torch(rhoA, rhoB):
         return _torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "geodesic", cost_only=False)
     rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
@@ -638,6 +680,8 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     first order only (see geodesic)."""
     _check_method(method, GEODESIC_METHODS, "transport_cost")
     _check_kwargs(method, kwargs, "transport_cost")
+    if method == "shooting":
+        _check_shooting_kwargs("transport_cost", kwargs)
     if _is_torch(rhoA, rhoB):
         return _sqrt_zero_subgradient(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
     if method in TRANSPORT_COST_METHODS:
@@ -675,8 +719,9 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     lam_i > 0 must be strictly positive. info = {"iters", "status",
     "J_hist", "grad_hist", "h"}; status is "converged", "stalled" (at the
     precision of the log maps) or "maxiters" (which warns). Keywords: ``h``,
-    ``maxiters``, ``tol`` (gradient norm, default 1e-5), ``ftol``,
-    ``log_tol``, ``nsteps``, ``init``, ``verbose``. First order, so it
+    ``maxiters`` (descent iterations), ``tol`` (gradient norm, default
+    1e-5), ``ftol``, ``log_tol`` and ``log_maxiters`` (each log map's Newton
+    tolerance and budget, default 50), ``nsteps``, ``init``, ``verbose``. First order, so it
     converges linearly; method="socp" solves the same problem to its global
     optimum and is the certificate.
 
@@ -701,6 +746,8 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     """
     _check_method(method, BARYCENTER_METHODS, "barycenter")
     _check_kwargs(method, kwargs, "barycenter")
+    if method == "shooting":
+        _check_shooting_kwargs("barycenter", kwargs)
     _reject_torch("barycenter", lam, *(refs if isinstance(refs, (list, tuple)) else [refs]))
     refs = _check_refs(G, refs)
     lam = _check_weights(lam, len(refs))
@@ -714,7 +761,8 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     method="shooting" (default): shooting.analyze_shooting -- potentials from
     log_map at ``target``, then the same Gram matrix and simplex QP as the
     SOCP. ``target`` and every reference must be strictly positive.
-    Keywords: ``nsteps``, ``tol``, ``phi0_inits``, ``compute_condition``,
+    Keywords: ``nsteps``, ``tol`` and ``maxiters`` (each log map's Newton
+    tolerance and budget, default 50), ``phi0_inits``, ``compute_condition``,
     ``return_system``, ``qp_method``, ``qp_solver``.
 
     A barycenter is recovered to solver tolerance only by the method that
@@ -741,6 +789,8 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     """
     _check_method(method, ANALYSIS_METHODS, "analysis")
     _check_kwargs(method, kwargs, "analysis")
+    if method == "shooting":
+        _check_shooting_kwargs("analysis", kwargs)
     _reject_torch("analysis", target, *(refs if isinstance(refs, (list, tuple)) else [refs]))
     target, refs = _check_density(G, target, "target"), _check_refs(G, refs)
     return ANALYSIS_METHODS[method](G, target, refs, **kwargs)

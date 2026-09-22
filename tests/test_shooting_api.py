@@ -312,9 +312,55 @@ def test_running_out_of_iterations_falls_back_with_the_real_error():
     G, A, B = _long_transport_pair()
     match = (r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
              r"smallest input density 3\.7e-01, in rhoA\)")
-    with pytest.warns(ShootingFallbackWarning, match=match):
+    with pytest.warns(ShootingFallbackWarning, match=match) as record:
         w = transport_cost(G, A, B, maxiters=2)
     assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
+    assert "raising maxiters= (default 50) may let shooting solve it exactly" in str(record[0].message)
+
+
+# ----- each entry point's Newton budget -----
+
+
+def test_analysis_takes_the_log_maps_newton_budget(grid4):
+    # the error used to advise maxiters=, which analysis did not take
+    G, A, B, C = grid4
+    with pytest.raises(ShootingError, match=r"Newton did not converge in 0 iterations.*\(maxiters=, default 50\)"):
+        analysis(G, A, [B, C], maxiters=0, fallback=False)
+
+
+def test_barycenter_takes_the_log_maps_newton_budget_as_log_maxiters(grid4):
+    # barycenter's maxiters is the descent's; the log maps' budget is log_maxiters,
+    # and the unreachable-reference error now carries the log map's own failure
+    G, A, B, _ = grid4
+    with pytest.raises(ShootingError, match=r"not reachable.*The log map failed with: log_map: Newton did not "
+                                            r"converge in 0 iterations.*\(log_maxiters=, default 50\)"):  # fmt: skip
+        barycenter(G, [A, B], [0.5, 0.5], log_maxiters=0, fallback=False)
+
+
+def test_the_fallback_warning_names_each_entry_points_budget(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, B, _ = grid4
+    with pytest.warns(ShootingFallbackWarning, match=r"raising log_maxiters= \(default 50\)"):
+        barycenter(G, [A, B], [0.5, 0.5], log_maxiters=0)
+
+
+@pytest.mark.parametrize(
+    "call, match",
+    [
+        (lambda G, A, B: analysis(G, A, [A, B], log_maxiters=5), r"analysis\(method='shooting'\) does not take "
+                                                                 r"log_maxiters; it takes .*maxiters"),
+        (lambda G, A, B: barycenter(G, [A, B], [0.5, 0.5], phi0_init=A), r"barycenter.*does not take phi0_init"),
+        (lambda G, A, B: geodesic(G, A, B, h=1.0), r"geodesic.*does not take h; it takes .*phi0_init"),
+        (lambda G, A, B: transport_cost(G, A, B, init=A), r"transport_cost.*does not take init"),
+    ],
+    ids=["analysis", "barycenter", "geodesic", "transport_cost"],
+)
+def test_a_keyword_of_another_shooting_entry_point_is_rejected_by_name(grid4, call, match):
+    # METHOD_KEYWORDS is per method, so these used to reach the backend as a raw
+    # "got an unexpected keyword argument"
+    G, A, B, _ = grid4
+    with pytest.raises(TypeError, match=match):
+        call(G, A, B)
 
 
 def test_a_mass_error_the_api_admits_is_absorbed(grid4):
