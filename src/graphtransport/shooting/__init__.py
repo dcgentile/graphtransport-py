@@ -24,6 +24,7 @@ from graphtransport.shooting.explog import (
 from graphtransport.shooting.geodesic import geodesic_shooting
 from graphtransport.shooting.hamiltonian import (
     PositivityFloorError,
+    TorchThreadsWarning,
     hamiltonian,
     hamiltonian_flow,
     integrate_hamiltonian,
@@ -34,6 +35,7 @@ __all__ = [
     "LogMapResult",
     "MollifiedLogMapResult",
     "PositivityFloorError",
+    "TorchThreadsWarning",
     "ShootingError",
     "analyze_shooting",
     "barycenter_shooting",

@@ -232,27 +232,57 @@ def test_log_map_reports_non_convergence_as_a_shooting_error():
         log_map(G, _density(G, rng), _density(G, rng), maxiters=0)
 
 
-def test_finite_difference_jacobian_matches_central_differences():
-    # The Jacobian is a batched forward difference; check it against an
-    # independent, more accurate central difference of the same map.
+def test_the_jacobian_is_exact():
+    # The Jacobian is torch's forward-mode derivative of the flow; check it
+    # against an independent central difference of the same map, whose error
+    # is O(h^2) ~ 1e-10 at h = 1e-5.
     from graphtransport.shooting import explog
-    from graphtransport.shooting.hamiltonian import _integrate_end, rho_floor
+    from graphtransport.shooting.hamiltonian import _as_tensor, rho_floor
 
     G = MarkovGraph(*grid_markov_chain(3))
     rng = np.random.default_rng(12)
     nu, mu = _density(G, rng), _density(G, rng)
     z = 0.05 * rng.standard_normal(G.n - 1)
+    nu_t = _as_tensor(nu)
 
     def F(zz):
-        phi0 = explog._reduced_to_potential(G, zz)
-        return _integrate_end(G, nu, phi0, 150, 1.0, rho_floor(G))[0][: G.n - 1] - mu[: G.n - 1]
+        return explog._shoot(G, nu_t, zz, 150, rho_floor(G))[0].numpy()[: G.n - 1] - mu[: G.n - 1]
 
-    steps = explog._FD_STEP * np.maximum(1.0, np.abs(z))
-    forward = np.column_stack([(F(z + steps[j] * np.eye(G.n - 1)[j]) - F(z)) / steps[j] for j in range(G.n - 1)])
-    central = np.column_stack(
-        [(F(z + 1e-5 * np.eye(G.n - 1)[j]) - F(z - 1e-5 * np.eye(G.n - 1)[j])) / 2e-5 for j in range(G.n - 1)]
-    )
-    np.testing.assert_allclose(forward, central, atol=1e-6 * np.abs(central).max())
+    _, schedule = explog._shoot(G, nu_t, z, 150, rho_floor(G))
+    exact = explog._shooting_jacobian(G, nu_t, z, schedule)
+    eye = np.eye(G.n - 1)
+    central = np.column_stack([(F(z + 1e-5 * eye[j]) - F(z - 1e-5 * eye[j])) / 2e-5 for j in range(G.n - 1)])
+    np.testing.assert_allclose(exact, central, atol=1e-8 * np.abs(central).max())
+
+
+def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
+    # The replay of a recorded schedule exists for shots that bisect a step
+    # near the floor. Seed 1272 gives one: a node at ~1e-4 and a strong
+    # potential, one of 150 steps halved, the same schedule under every
+    # perturbation below (checked, so the central differences stay on the
+    # shot's branch of the piecewise-smooth flow map).
+    from graphtransport.shooting import explog
+    from graphtransport.shooting.hamiltonian import _as_tensor, rho_floor
+
+    G = MarkovGraph(*grid_markov_chain(3))
+    n, floor = G.n, rho_floor(G)
+    rng = np.random.default_rng(1272)
+    nu = rng.uniform(0.5, 1.5, n)
+    nu[rng.integers(n)] = 10 ** rng.uniform(-6, -3)
+    nu /= nu @ G.pi
+    z = rng.standard_normal(n - 1) * 10 ** rng.uniform(-1, 1.5)
+    nu_t = _as_tensor(nu)
+
+    _, schedule = explog._shoot(G, nu_t, z, 150, floor)
+    assert max(len(steps) for steps in schedule) > 1  # a step was halved
+    exact = explog._shooting_jacobian(G, nu_t, z, schedule)
+    h, eye = 1e-6, np.eye(n - 1)
+    for j in range(n - 1):
+        (up, s_up), (down, s_down) = (explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
+                                      explog._shoot(G, nu_t, z - h * eye[j], 150, floor))  # fmt: skip
+        assert s_up == schedule and s_down == schedule
+        central = (up.numpy() - down.numpy())[: n - 1] / (2 * h)
+        np.testing.assert_allclose(exact[:, j], central, atol=1e-7 * np.abs(exact).max())
 
 
 # ----- analysis and the mollified fallback -----

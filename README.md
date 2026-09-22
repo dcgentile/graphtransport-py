@@ -8,7 +8,7 @@ graph/dataset utility), not just a 1:1 translation of the Julia API.
 
 Phases 1-5 of the [porting plan](PORTING_PLAN.md) are implemented: admissible means, `MarkovGraph`, the
 predefined graphs, the Sinkhorn/entropic-OT core with its hand-derived
-gradient and optional PyTorch and JAX autograd backends, the SOCP geodesic,
+gradient and PyTorch and JAX autograd backends, the SOCP geodesic,
 barycenter and analysis (cvxpy + Clarabel), geodesics and barycenters by
 shooting on the Hamiltonian flow, and the unified
 `geodesic`/`transport_cost`/`barycenter`/`analysis` API over all three
@@ -43,9 +43,29 @@ than the SOCP at its default N=10 on graphs above roughly 64 nodes, since
 each Newton step integrates n trajectories. For large graphs, or data near
 the boundary, pass `method="socp"`.
 
-Optional extras: `pip install "graphtransport[socp]"` for cvxpy and Clarabel;
-`"[torch]"` / `"[jax]"` for the autograd-native Sinkhorn backends. The
-default method needs none of them.
+### Installing
+
+PyTorch is a required dependency: the shooting method differentiates the
+Hamiltonian flow with it, so its Newton Jacobian is exact (as Julia's, which
+uses ForwardDiff, is). A plain `pip install torch` on Linux fetches the CUDA
+build, several GB; for the CPU build, install torch first from PyTorch's CPU
+index:
+
+```
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install graphtransport
+```
+
+Optional extras: `pip install "graphtransport[socp]"` for cvxpy and Clarabel,
+and `"[jax]"` for the JAX Sinkhorn backend. The default method needs neither.
+(`"[torch]"` still resolves, and installs nothing extra.)
+
+The exact Jacobian costs time: on a 5x5 grid, a shooting geodesic went from
+0.8 s to 1.5 s and a three-reference barycenter from 17 s to 33 s. (The speed
+comparison under "Choosing a method" predates it.) torch's default thread
+pool adds CPU time but no speed at these sizes, and the solver warns once
+(`TorchThreadsWarning`) when torch uses more than one thread;
+`torch.set_num_threads(1)` avoids the cost.
 
 There is a `graphtransport-py-draft` sibling directory containing an earlier,
 unreviewed first attempt at a full port. It is kept only as reference material
@@ -56,6 +76,7 @@ and is not part of this package's history or design.
 ```
 python -m venv .venv
 source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
-pytest
+pytest              # the slow Julia cross-checks are deselected; pytest -m "" runs them too
 ```

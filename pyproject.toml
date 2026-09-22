@@ -7,16 +7,21 @@ name = "graphtransport"
 version = "0.1.0"
 description = "Python port of GraphTransportation.jl: optimal transport and Wasserstein barycenters on graphs."
 requires-python = ">=3.10"
-dependencies = ["numpy", "scipy"]
+# torch is the shooting solver's autodiff: the exact Jacobian of the Hamiltonian flow
+dependencies = ["numpy", "scipy", "torch"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
-torch = ["torch"]
+torch = []  # torch is now a core dependency; kept so "[torch]" installs still resolve
 jax = ["jax"]
 socp = ["cvxpy", "clarabel"]
 
 [tool.pytest.ini_options]
 pythonpath = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: long-running cross-checks (tens of seconds each); run with -m \"\""]
+# the suite runs the solver many times; the warning's own test uses pytest.warns
+filterwarnings = ["ignore::graphtransport.shooting.hamiltonian.TorchThreadsWarning"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/graphtransport"]

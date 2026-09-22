@@ -29,6 +29,7 @@ from julia_values import (
     JULIA_API_ANALYSIS_LAMBDA,
     JULIA_SOCP,
     JULIA_BSOCP,
+    JULIA_LONG_TRANSPORT_LOG_MAP,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
@@ -199,3 +200,31 @@ def test_barycenter_socp_matches_julia():
             analyze_socp(Gm, nu, refs, N=6, convention="momentum"), ref["lam_hat_momentum"],
             atol=1e-3, err_msg=f"{name} lam_hat_momentum",
         )
+
+
+# The slow cases take 14-46 s each; they run in the all-extras CI job (-m "").
+@pytest.mark.parametrize(
+    "case",
+    [(10, 9), (12, 8), pytest.param((12, 11), marks=pytest.mark.slow), pytest.param((16, 15), marks=pytest.mark.slow)],
+    ids=lambda c: f"{c[0]}x{c[0]}-shift{c[1]}",
+)
+def test_log_map_matches_julia_on_long_transports(case):
+    # Julia's Jacobian is ForwardDiff's. The port's forward-difference Jacobian
+    # stalled on every one of these (line search failed at iteration 6 on the
+    # 10x10); with an exact Jacobian, Newton takes Julia's steps: the same
+    # iteration count, and W2 to rounding.
+    from graphtransport import grid_markov_chain
+    from graphtransport.shooting import log_map
+
+    k, shift = case
+    G = MarkovGraph(*grid_markov_chain(k))
+    xy = np.array([(i % k, i // k) for i in range(G.n)], dtype=float)
+
+    def bump(center):
+        rho = np.exp(-((xy - center) ** 2).sum(axis=1) / 8) + 0.05
+        return rho / (rho @ G.pi)
+
+    W2, iters = JULIA_LONG_TRANSPORT_LOG_MAP[case]
+    r = log_map(G, bump((0, 0)), bump((shift, shift)))
+    assert r.W2 == pytest.approx(W2, rel=1e-12)
+    assert r.iters == iters

@@ -15,15 +15,52 @@ prefer the SOCP for that mean near the boundary.
 
 The equations of motion are Hamilton's equations for the pi-weighted pairing,
 rho_dot(z) = (1/pi(z)) dH/dphi(z) and phi_dot(z) = -(1/pi(z)) dH/drho(z).
-They contain the identity rho_dot = -div(theta(rho) . grad phi), which is why
-rho_dot reuses graph_divergence and graph_gradient directly.
+They contain the identity rho_dot = -div(theta(rho) . grad phi), with div
+the graph divergence (G.D's sign convention).
+
+The flow and the integrator are implemented once, in torch (see "the flow in
+torch" below), so the shooting Jacobian can be exact; the public functions
+here take and return numpy arrays.
 """
 
 from __future__ import annotations
 
-import numpy as np
+import warnings
 
-from graphtransport.graph import MarkovGraph, graph_divergence, graph_gradient
+import numpy as np
+import torch
+
+from graphtransport.graph import MarkovGraph, graph_gradient
+
+
+class TorchThreadsWarning(UserWarning):
+    """torch is using more than one thread for the shooting solver's small
+    operations, which costs CPU time without speeding them up. Issued once per
+    process; filter it to silence it."""
+
+
+_threads_warned = False
+
+
+def _warn_about_threads() -> None:
+    """Measured on the test suite (graphs up to 16x16): the same wall time
+    with torch's default 10 threads as with one, at 3.6x the CPU time. Several
+    solves run in parallel would oversubscribe the machine. Changing torch's
+    global thread count is the caller's decision, so this only says so."""
+    global _threads_warned
+    if _threads_warned:
+        return
+    _threads_warned = True
+    threads = torch.get_num_threads()
+    if threads > 1:
+        warnings.warn(
+            f"torch is using {threads} threads. The shooting solver runs many small torch operations, which "
+            "gain nothing from threads at graph sizes up to a few hundred nodes but cost several times the CPU "
+            "time (3.6x on the test suite). Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially "
+            "when running solves in parallel. Filter TorchThreadsWarning to silence this.",
+            TorchThreadsWarning,
+            stacklevel=3,
+        )
 
 
 class PositivityFloorError(Exception):
@@ -93,83 +130,215 @@ def hamiltonian_flow(G: MarkovGraph, rho, phi, *, floor_rtol: float = 1e-6):
     -inf (partial_s(0, t) genuinely diverges) and just inside it the result is
     finite but meaningless, neither of which announces itself downstream.
 
-    The RK4 stages call the unchecked `_hamiltonian_flow` instead, so the
-    integrator still validates once per call rather than four times per step.
+    The integrator's RK4 stages call the unchecked torch flow instead, so it
+    still validates once per call rather than four times per step.
     """
     rho = _check_interior(G, rho, rho_floor(G, rtol=floor_rtol), "rho")
     return _hamiltonian_flow(G, rho, phi)
 
 
 def _hamiltonian_flow(G: MarkovGraph, rho, phi):
-    """hamiltonian_flow without the domain check; rho must already be a float
-    array strictly above the floor.
-
-    rho and phi may carry a trailing batch axis, shape (n, k): column j is an
-    independent state. log_map uses this to integrate every column of its
-    finite-difference Jacobian in one pass.
-    """
-    rho = np.asarray(rho, dtype=float)
-    grad_phi = graph_gradient(G, phi)
-    s, t = _edge_densities(G, rho)
-    rho_dot = -graph_divergence(G, G.mean(s, t) * grad_phi)
-
-    half_grad_sq = 0.5 * grad_phi**2
-    to_x, to_y = _scatter(G)
-    phi_dot = -(to_x @ (G.mean.partial_s(s, t) * half_grad_sq)) - (to_y @ (G.mean.partial_s(t, s) * half_grad_sq))
-    return rho_dot, phi_dot
+    """hamiltonian_flow without the domain check, on numpy arrays; rho must
+    already be strictly above the floor. A thin wrapper over the torch flow,
+    which is the one implementation of the equations of motion."""
+    rho_dot, phi_dot = _torch_flow(G, _as_tensor(rho), _as_tensor(phi))
+    return rho_dot.numpy(), phi_dot.numpy()
 
 
-def _scatter(G: MarkovGraph):
-    """Sparse (n, |E|) matrices sending an edge quantity to its tail x, weighted
-    by Q[x, y], and to its head y, weighted by Q[y, x] -- exactly the negative
-    and positive parts of the incidence matrix G.D. As mat-muls rather than
-    np.add.at they are about 12x faster, which matters because log_map's
-    Jacobian evaluates the flow thousands of times on (|E|, n) batches.
+# ----- the flow in torch -----
+#
+# The equations of motion and the integrator are written once, in torch, so
+# that torch's autodiff can differentiate the discrete flow map exactly: that
+# is what log_map's Jacobian is (Julia uses ForwardDiff for the same thing; a
+# finite-difference Jacobian loses accuracy as Newton moves into the regions
+# where long transports thin out, and stalls there). Everything is float64.
+#
+# The integrator bisects a step whenever it would cross the positivity floor,
+# which is a branch on the data. torch.func's batched autodiff cannot trace
+# such a branch, so the integration is split in two: _torch_integrate runs the
+# shot without autodiff and records the step schedule it took, and
+# _torch_replay re-runs a given schedule with no branches, which autodiff can
+# differentiate. Replaying the schedule of the shot being differentiated gives
+# the derivative of the branch the shot actually took -- ForwardDiff's
+# semantics exactly.
 
-    Cached on the graph on first use. with_mean copies the instance dict, so
-    a graph that differs only in its mean shares them, correctly: they depend
-    on Q and pi alone."""
-    cached = G.__dict__.get("_flow_scatter")
+_DTYPE = torch.float64
+
+
+def _as_tensor(a) -> torch.Tensor:
+    a = np.asarray(a, dtype=float)
+    if not a.flags.writeable:  # a broadcast view, say: torch warns on non-writable arrays
+        a = a.copy()
+    return torch.as_tensor(a, dtype=_DTYPE)
+
+
+def _torch_edges(G: MarkovGraph):
+    """(x, y, Q[x, y], Q[y, x]) per oriented edge, as tensors. Cached on the
+    graph; with_mean copies the instance dict, so graphs differing only in
+    their mean share them, correctly: they depend on Q alone."""
+    cached = G.__dict__.get("_torch_edges")
     if cached is None:
-        cached = ((-G.D.minimum(0)).tocsr(), G.D.maximum(0).tocsr())
-        G.__dict__["_flow_scatter"] = cached
+        x, y = G.E[:, 0], G.E[:, 1]
+        q_xy = np.asarray(G.Q[x, y], dtype=float).ravel()
+        q_yx = np.asarray(G.Q[y, x], dtype=float).ravel()
+        cached = (torch.as_tensor(x), torch.as_tensor(y), torch.as_tensor(q_xy, dtype=_DTYPE),
+                  torch.as_tensor(q_yx, dtype=_DTYPE))  # fmt: skip
+        G.__dict__["_torch_edges"] = cached
     return cached
 
 
-def _rk4_step(G: MarkovGraph, rho, phi, h: float):
-    k1r, k1p = _hamiltonian_flow(G, rho, phi)
-    k2r, k2p = _hamiltonian_flow(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p)
-    k3r, k3p = _hamiltonian_flow(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p)
-    k4r, k4p = _hamiltonian_flow(G, rho + h * k3r, phi + h * k3p)
-    rho_next = rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r)
-    phi_next = phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
-    return rho_next, phi_next
+def _torch_flow(G: MarkovGraph, rho: torch.Tensor, phi: torch.Tensor):
+    """(rho_dot, phi_dot) on tensors of shape (n,) or, with a trailing batch
+    axis, (n, k): column j is an independent state.
+
+    rho_dot = -div(theta . grad phi): edge e = (x, y) carries theta_e (grad
+    phi)_e out of x at rate Q[x, y] and into y at rate Q[y, x], which is G.D's
+    sign convention. phi_dot gathers -1/2 partial theta (grad phi)^2 onto both
+    ends the same way."""
+    x, y, q_xy, q_yx = _torch_edges(G)
+    if rho.dim() == 2:
+        q_xy, q_yx = q_xy[:, None], q_yx[:, None]
+    grad_phi = phi[x] - phi[y]
+    s, t = rho[x], rho[y]
+    flux = G.mean.torch_theta(s, t) * grad_phi
+    half_grad_sq = 0.5 * grad_phi * grad_phi
+    zeros = torch.zeros_like(rho)
+    rho_dot = zeros.index_add(0, x, q_xy * flux).index_add(0, y, -q_yx * flux)
+    phi_dot = zeros.index_add(0, x, -q_xy * G.mean.torch_partial_s(s, t) * half_grad_sq).index_add(
+        0, y, -q_yx * G.mean.torch_partial_s(t, s) * half_grad_sq
+    )
+    return rho_dot, phi_dot
 
 
-def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, depth: int):
+def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
+    """The flow and its directional derivatives: (rho_dot, phi_dot, d_rho_dot,
+    d_phi_dot), for one state (rho, phi) of shape (n,) and a block of tangents
+    (d_rho, d_phi) of shape (n, k).
+
+    This is forward-mode differentiation written out, the tangent-linear model:
+    the chain rule through the graph is linear and explicit here, and only the
+    elementwise second derivatives of the mean come from the mean itself
+    (closed forms, or one autodiff call on |E|-sized vectors). Carrying the k tangents as one batch is what makes the
+    Jacobian cheap: torch.func.jacfwd pushes them through vmap instead, which
+    was 40x slower on a 5x5 grid."""
+    x, y, q_xy, q_yx = _torch_edges(G)
+    mean = G.mean
+    g = phi[x] - phi[y]
+    s, t = rho[x], rho[y]
+    theta = mean.torch_theta(s, t)
+    a, b = mean.torch_partial_s(s, t), mean.torch_partial_s(t, s)  # d theta / ds, d theta / dt
+    # second derivatives: a = P(s, t) and b = P(t, s) with P = partial_s, both
+    # evaluated in one call on the edges stacked with their reverses
+    m = s.shape[0]
+    P_1, P_2 = mean.torch_partial_s_grad(torch.cat([s, t]), torch.cat([t, s]))
+    a_s, b_t = P_1[:m], P_1[m:]
+    a_t, b_s = P_2[:m], P_2[m:]
+
+    half_g2 = 0.5 * g * g
+    zeros = torch.zeros_like(rho)
+    flux = theta * g
+    rho_dot = zeros.index_add(0, x, q_xy * flux).index_add(0, y, -q_yx * flux)
+    phi_dot = zeros.index_add(0, x, -q_xy * a * half_g2).index_add(0, y, -q_yx * b * half_g2)
+
+    ds, dt, dg = d_rho[x], d_rho[y], d_phi[x] - d_phi[y]
+    c = lambda v: v[:, None]  # noqa: E731 -- edge coefficient against a (|E|, k) block
+    d_flux = (c(a) * ds + c(b) * dt) * c(g) + c(theta) * dg
+    d_a, d_b = c(a_s) * ds + c(a_t) * dt, c(b_s) * ds + c(b_t) * dt
+    d_half_g2 = c(g) * dg
+    tzeros = torch.zeros_like(d_rho)
+    d_rho_dot = tzeros.index_add(0, x, c(q_xy) * d_flux).index_add(0, y, -c(q_yx) * d_flux)
+    d_phi_dot = tzeros.index_add(0, x, -c(q_xy) * (d_a * c(half_g2) + c(a) * d_half_g2)).index_add(
+        0, y, -c(q_yx) * (d_b * c(half_g2) + c(b) * d_half_g2)
+    )
+    return rho_dot, phi_dot, d_rho_dot, d_phi_dot
+
+
+def _torch_rk4_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, h: float):
+    """One RK4 step of the state and, linearised, of the tangent block."""
+    k1r, k1p, l1r, l1p = _torch_flow_tangent(G, rho, phi, d_rho, d_phi)
+    k2r, k2p, l2r, l2p = _torch_flow_tangent(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p,
+                                             d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p)  # fmt: skip
+    k3r, k3p, l3r, l3p = _torch_flow_tangent(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p,
+                                             d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p)  # fmt: skip
+    k4r, k4p, l4r, l4p = _torch_flow_tangent(G, rho + h * k3r, phi + h * k3p, d_rho + h * l3r, d_phi + h * l3p)
+    return (rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r), phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p),
+            d_rho + (h / 6) * (l1r + 2 * l2r + 2 * l3r + l4r), d_phi + (h / 6) * (l1p + 2 * l2p + 2 * l3p + l4p))  # fmt: skip
+
+
+def _torch_replay_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, schedule):
+    """_torch_replay with a block of tangents carried along: returns the end
+    state and d(end state) in the directions (d_rho, d_phi), exactly."""
+    with torch.no_grad():
+        for steps in schedule:
+            for dt in steps:
+                rho, phi, d_rho, d_phi = _torch_rk4_tangent(G, rho, phi, d_rho, d_phi, dt)
+    return rho, phi, d_rho, d_phi
+
+
+def _torch_rk4(G: MarkovGraph, rho, phi, h: float):
+    k1r, k1p = _torch_flow(G, rho, phi)
+    k2r, k2p = _torch_flow(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p)
+    k3r, k3p = _torch_flow(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p)
+    k4r, k4p = _torch_flow(G, rho + h * k3r, phi + h * k3p)
+    return rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r), phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
+
+
+def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, depth: int, schedule: list):
     """Advance by exactly dt, bisecting (and recursing on each half) whenever a
-    step would cross the positivity floor. Bisecting rather than retrying with
-    a smaller h keeps the integrator's clock in step with the nsteps * h = T
-    the caller asked for.
+    step would cross the positivity floor, and append each step length taken to
+    ``schedule``. Bisecting rather than retrying with a smaller h keeps the
+    integrator's clock in step with the nsteps * h = T the caller asked for.
 
     An RK4 stage evaluates the flow at *intermediate* proposed states, which
-    can dip below the floor even when the accepted output would not have. In
-    Julia that surfaces as a DomainError from inside the flow; numpy instead
-    produces nan silently (the means return nan outside their domain by
-    design), so the guard tests for finiteness as well as for the floor.
+    can dip below the floor even when the accepted output would not have; the
+    means then produce nan (or inf) rather than an error, so the guard tests for
+    finiteness as well as for the floor. With a batch axis every column takes
+    the same steps: if any column needs a bisection, all bisect.
     """
-    with np.errstate(invalid="ignore", divide="ignore"):
-        rho_next, phi_next = _rk4_step(G, rho, phi, dt)
-    ok = np.all(np.isfinite(rho_next)) and np.all(np.isfinite(phi_next)) and rho_next.min() > floor_val
-    if ok:
+    rho_next, phi_next = _torch_rk4(G, rho, phi, dt)
+    if bool(torch.isfinite(rho_next).all()) and bool(torch.isfinite(phi_next).all()) and float(rho_next.min()) > floor_val:
+        schedule.append(dt)
         return rho_next, phi_next
     if depth <= 0:
         raise PositivityFloorError(
             "the Hamiltonian flow hit the positivity floor after repeated step halving. Fall back to "
             "method='socp' (exact, handles densities supported on part of the graph) for this instance."
         )
-    rho_mid, phi_mid = _advance_interval(G, rho, phi, dt / 2, floor_val, depth - 1)
-    return _advance_interval(G, rho_mid, phi_mid, dt / 2, floor_val, depth - 1)
+    rho_mid, phi_mid = _advance_interval(G, rho, phi, dt / 2, floor_val, depth - 1, schedule)
+    return _advance_interval(G, rho_mid, phi_mid, dt / 2, floor_val, depth - 1, schedule)
+
+
+def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4,
+                     path: bool = False):
+    """Run the flow from tensors (rho, phi) over [0, T] in nsteps steps, without
+    autodiff. Returns (rho_end, phi_end, schedule, paths): schedule[i] is the
+    list of step lengths that step i was taken in (one entry unless it was
+    bisected), and paths is (rho_path, phi_path), each (n, nsteps + 1), if
+    ``path`` else None."""  # fmt: skip
+    _warn_about_threads()
+    schedule = []
+    rho_path, phi_path = [rho], [phi]
+    h = T / nsteps
+    with torch.no_grad():
+        for _ in range(nsteps):
+            steps: list = []
+            rho, phi = _advance_interval(G, rho, phi, h, floor_val, max_halvings, steps)
+            schedule.append(steps)
+            if path:
+                rho_path.append(rho)
+                phi_path.append(phi)
+    paths = (torch.stack(rho_path, dim=1), torch.stack(phi_path, dim=1)) if path else None
+    return rho, phi, schedule, paths
+
+
+def _torch_replay(G: MarkovGraph, rho, phi, schedule):
+    """The end state of the flow from (rho, phi) along a recorded schedule: the
+    same arithmetic as _torch_integrate, with no branches, so torch's autodiff
+    can differentiate it."""
+    for steps in schedule:
+        for dt in steps:
+            rho, phi = _torch_rk4(G, rho, phi, dt)
+    return rho, phi
 
 
 def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: float = 1.0,
@@ -201,26 +370,14 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
         raise ValueError(f"phi0 must have shape ({G.n},), got {phi.shape}")
     if not np.all(np.isfinite(phi)):
         raise ValueError("phi0 has non-finite entries")
-
-    rho_path = np.empty((G.n, nsteps + 1))
-    phi_path = np.empty((G.n, nsteps + 1))
-    rho_path[:, 0], phi_path[:, 0] = rho, phi
-    h = T / nsteps
-    for i in range(nsteps):
-        rho, phi = _advance_interval(G, rho, phi, h, floor_val, max_halvings)
-        rho_path[:, i + 1], phi_path[:, i + 1] = rho, phi
-    return rho_path, phi_path
+    _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val,
+                                                     max_halvings, path=True)  # fmt: skip
+    return rho_path.numpy(), phi_path.numpy()
 
 
 def _integrate_end(G: MarkovGraph, rho0, phi0, nsteps: int, T: float, floor_val: float, max_halvings: int = 4):
-    """The flow's end state only, without storing the path and without the
-    argument checks (callers have done them). Accepts a trailing batch axis;
-    the columns share one step schedule, so if any column needs a step bisected
-    they all take the bisected step. That keeps a batch of nearby trajectories
-    on the same branch of the piecewise-smooth discrete flow map, which is what
-    makes finite differences across the batch meaningful."""
-    rho, phi = np.asarray(rho0, dtype=float), np.asarray(phi0, dtype=float)
-    h = T / nsteps
-    for _ in range(nsteps):
-        rho, phi = _advance_interval(G, rho, phi, h, floor_val, max_halvings)
-    return rho, phi
+    """The flow's end state only, on numpy arrays, without storing the path and
+    without the argument checks (callers have done them). Accepts a trailing
+    batch axis; the columns share one step schedule."""
+    rho, phi, _, _ = _torch_integrate(G, _as_tensor(rho0), _as_tensor(phi0), nsteps, T, floor_val, max_halvings)
+    return rho.numpy(), phi.numpy()

@@ -107,3 +107,12 @@ JULIA_BSOCP = {
     },
 }
 # fmt: on
+
+# log_map on long transports, from tests/julia_reference/shooting_long_transport.jl:
+# {(grid size, shift): (W2, Newton iterations)} for corner bumps exp(-|x-c|^2/8) + 0.05.
+JULIA_LONG_TRANSPORT_LOG_MAP = {
+    (10, 9): (138.60667081914244, 19),
+    (12, 8): (149.24897455884286, 23),
+    (12, 11): (182.72234913218654, 21),
+    (16, 15): (217.61675917519815, 28),
+}
