@@ -68,29 +68,41 @@ def _edge_densities(G: MarkovGraph, rho):
     return rho[G.E[:, 0]], rho[G.E[:, 1]]
 
 
-def hamiltonian(G: MarkovGraph, rho, phi) -> float:
+def hamiltonian(G: MarkovGraph, rho, phi, *, floor_rtol: float = 1e-6) -> float:
     """H(rho, phi) = 1/2 sum_e kappa_e theta(rho_x, rho_y) (grad phi)_e^2.
 
     Twice H is the squared transport distance along the geodesic this state
     generates, which is how the flow's own endpoints can be checked against
-    the SOCP.
+    the SOCP. Requires rho strictly positive, and says so rather than
+    returning the plausible finite number a boundary density produces.
     """
-    rho = np.asarray(rho, dtype=float)
+    rho = _check_interior(G, rho, rho_floor(G, rtol=floor_rtol), "rho")
     grad_phi = graph_gradient(G, phi)
     s, t = _edge_densities(G, rho)
     return float(0.5 * np.sum(G.kappa * G.mean(s, t) * grad_phi**2))
 
 
-def hamiltonian_flow(G: MarkovGraph, rho, phi):
+def hamiltonian_flow(G: MarkovGraph, rho, phi, *, floor_rtol: float = 1e-6):
     """The equations of motion, (rho_dot, phi_dot):
 
         rho_dot(x) = sum_y theta(rho_x, rho_y) (phi_x - phi_y) Q(x, y)
                    = -div(theta(rho) . grad phi)(x)
         phi_dot(x) = -1/2 sum_y partial_s theta(rho_x, rho_y) (phi_x - phi_y)^2 Q(x, y)
 
-    Requires rho strictly positive; the caller is responsible for the check
-    (integrate_hamiltonian does it once per call rather than per RK4 stage).
+    Requires rho strictly positive, and checks it: at the boundary phi_dot is
+    -inf (partial_s(0, t) genuinely diverges) and just inside it the result is
+    finite but meaningless, neither of which announces itself downstream.
+
+    The RK4 stages call the unchecked `_hamiltonian_flow` instead, so the
+    integrator still validates once per call rather than four times per step.
     """
+    rho = _check_interior(G, rho, rho_floor(G, rtol=floor_rtol), "rho")
+    return _hamiltonian_flow(G, rho, phi)
+
+
+def _hamiltonian_flow(G: MarkovGraph, rho, phi):
+    """hamiltonian_flow without the domain check; rho must already be a float
+    array strictly above the floor."""
     rho = np.asarray(rho, dtype=float)
     grad_phi = graph_gradient(G, phi)
     s, t = _edge_densities(G, rho)
@@ -107,10 +119,10 @@ def hamiltonian_flow(G: MarkovGraph, rho, phi):
 
 
 def _rk4_step(G: MarkovGraph, rho, phi, h: float):
-    k1r, k1p = hamiltonian_flow(G, rho, phi)
-    k2r, k2p = hamiltonian_flow(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p)
-    k3r, k3p = hamiltonian_flow(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p)
-    k4r, k4p = hamiltonian_flow(G, rho + h * k3r, phi + h * k3p)
+    k1r, k1p = _hamiltonian_flow(G, rho, phi)
+    k2r, k2p = _hamiltonian_flow(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p)
+    k3r, k3p = _hamiltonian_flow(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p)
+    k4r, k4p = _hamiltonian_flow(G, rho + h * k3r, phi + h * k3p)
     rho_next = rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r)
     phi_next = phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
     return rho_next, phi_next
@@ -160,6 +172,10 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     if not np.isfinite(T) or T <= 0:
         raise ValueError(f"T must be a positive, finite time, got {T!r}")
+    if isinstance(max_halvings, bool) or not isinstance(max_halvings, (int, np.integer)) or max_halvings < 0:
+        # A negative value would disable bisection silently: depth <= 0 holds on
+        # entry, so the first floor crossing raises instead of being retried.
+        raise ValueError(f"max_halvings must be an integer >= 0, got {max_halvings!r}")
     floor_val = rho_floor(G, rtol=floor_rtol)
     rho = _check_interior(G, rho0, floor_val, "rho0")
     phi = np.asarray(phi0, dtype=float)

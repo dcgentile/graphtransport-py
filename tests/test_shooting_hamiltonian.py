@@ -1,3 +1,5 @@
+import importlib
+
 import numpy as np
 import pytest
 from scipy.integrate import quad
@@ -134,6 +136,70 @@ def test_flow_matches_the_divergence_identity_and_preserves_mass_infinitesimally
     theta = G.mean(rho[G.E[:, 0]], rho[G.E[:, 1]])
     np.testing.assert_allclose(rho_dot, -graph_divergence(G, theta * graph_gradient(G, phi)), rtol=1e-12)
     assert rho_dot @ G.pi == pytest.approx(0.0, abs=1e-14)
+
+
+def test_flow_is_gauge_invariant():
+    # phi is defined up to an additive constant: only grad phi enters the
+    # equations of motion. A sign slip in graph_gradient would break this
+    # while leaving mass and H conservation intact.
+    G = MarkovGraph(*triangle_markov_chain())
+    rng = np.random.default_rng(11)
+    rho0, phi0 = _interior_state(G, rng)
+    rho_a, phi_a = integrate_hamiltonian(G, rho0, phi0, nsteps=100)
+    rho_b, phi_b = integrate_hamiltonian(G, rho0, phi0 + 3.7, nsteps=100)
+    np.testing.assert_allclose(rho_b, rho_a, atol=1e-12)
+    np.testing.assert_allclose(phi_b - phi_a, 3.7, atol=1e-12)
+
+
+def test_scaling_phi_reparametrises_time():
+    # theta is 1-homogeneous, so scaling the potential rescales time:
+    # rho(T; a phi) == rho(aT; phi). Breaks if a mean loses its homogeneity.
+    G = MarkovGraph(*triangle_markov_chain())
+    rng = np.random.default_rng(11)
+    rho0, phi0 = _interior_state(G, rng)
+    a = 2.0
+    fast = integrate_hamiltonian(G, rho0, a * phi0, nsteps=200, T=1.0)[0][:, -1]
+    slow = integrate_hamiltonian(G, rho0, phi0, nsteps=200, T=a)[0][:, -1]
+    np.testing.assert_allclose(fast, slow, atol=1e-12)
+
+
+@pytest.mark.parametrize("rho", [np.array([0.0, 1.0, 2.0]), np.array([1e-14, 1.0, 2.0]), np.array([-1.0, 1.5, 2.5])])
+def test_public_flow_and_hamiltonian_reject_non_interior_densities(rho):
+    # At the boundary phi_dot is -inf and just inside it the result is finite
+    # but meaningless; neither announces itself downstream, so both public
+    # entry points check rather than trusting the caller.
+    G = MarkovGraph(*triangle_markov_chain())
+    phi = np.array([0.1, -0.05, -0.05])
+    with pytest.raises(ValueError, match="positivity floor"):
+        hamiltonian_flow(G, rho, phi)
+    with pytest.raises(ValueError, match="positivity floor"):
+        hamiltonian(G, rho, phi)
+
+
+def test_the_rk4_stages_do_not_pay_for_the_domain_check(monkeypatch):
+    # The integrator validates once per call, not four times per step: the
+    # stages go through the unchecked routine. (importlib because the package
+    # re-exports the function `hamiltonian`, which shadows the module of the
+    # same name on `graphtransport.shooting`.)
+    module = importlib.import_module("graphtransport.shooting.hamiltonian")
+
+    calls = []
+    original = module._check_interior
+    monkeypatch.setattr(module, "_check_interior", lambda *a, **k: (calls.append(1), original(*a, **k))[1])
+    integrate_hamiltonian(
+        MarkovGraph(*triangle_markov_chain()), np.array([1.5, 0.9, 0.6]), np.array([0.1, -0.05, -0.05]), nsteps=10
+    )
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("max_halvings", [-5, -1, 2.5, True, None])
+def test_invalid_max_halvings(max_halvings):
+    # A negative value would disable bisection with no symptom: the first
+    # floor crossing raises instead of being retried.
+    with pytest.raises(ValueError, match="max_halvings must be an integer >= 0"):
+        integrate_hamiltonian(
+            _two_node(), np.array([1.6, 0.4]), np.array([0.1, -0.1]), max_halvings=max_halvings
+        )
 
 
 def test_rho_floor_scales_with_the_stationary_distribution():
