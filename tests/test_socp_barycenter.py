@@ -48,6 +48,26 @@ def test_symmetric_references_give_uniform_barycenter():
     assert J == pytest.approx(sum(W2s) / 3, abs=1e-6)
 
 
+def test_geodesics_carry_the_index_of_their_reference():
+    # The list is compacted, so geodesics[k] need not belong to refs[k];
+    # ref_index is what ties each geodesic back to its reference.
+    G = _triangle()
+    _, _, geodesics = barycenter_socp(G, REFS, [0.6, 0.0, 0.4], N=6)
+    assert [g.ref_index for g in geodesics] == [0, 2]
+
+    # each geodesic really does start at the reference its index names
+    for g in geodesics:
+        np.testing.assert_allclose(g.rho[:, 0], REFS[g.ref_index], atol=1e-5)
+
+    _, _, all_active = barycenter_socp(G, REFS, LAM, N=6)
+    assert [g.ref_index for g in all_active] == [0, 1, 2]
+
+
+def test_standalone_geodesic_has_no_ref_index():
+    sol = geodesic_socp(_triangle(), REFS[0], REFS[1], N=4)
+    assert sol.ref_index is None
+
+
 def test_zero_weight_drops_that_reference():
     _, _, geos = barycenter_socp(_triangle(), REFS, [0.5, 0.5, 0.0], N=10)
     assert len(geos) == 2

@@ -21,7 +21,10 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
     J = sum_i lam_i W_h^2(refs_i, nu), and one GeodesicSolution per active
     reference (in the order of ``refs``) from that reference to nu, each
     carrying its endpoint potentials for the *unweighted* geodesic (the
-    lam_i factor is divided out of the duals). KKT stationarity of the joint
+    lam_i factor is divided out of the duals) and its ``ref_index``, the
+    position of its reference in ``refs``. Since zero-weight references are
+    dropped, ``geodesics[k]`` need not be the geodesic of ``refs[k]``;
+    ``ref_index`` is what relates the two. KKT stationarity of the joint
     program in nu is exactly sum_i lam_i phi1_i = const on the support of
     nu, which is what the potential-based analysis checks.
 
@@ -69,7 +72,7 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
         geodesics.append(
             GeodesicSolution(
                 float(h * action) if action is not None else np.nan,
-                _value(blk["rho"], (G.n, N + 1)), m, m[:, 0].copy(), phi0, phi1, status, solvetime,
+                _value(blk["rho"], (G.n, N + 1)), m, m[:, 0].copy(), phi0, phi1, status, solvetime, i,
             )  # fmt: skip
         )
     nu_value = np.full(G.n, np.nan) if nu.value is None else np.asarray(nu.value, dtype=float)
