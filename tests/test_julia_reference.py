@@ -227,4 +227,9 @@ def test_log_map_matches_julia_on_long_transports(case):
     W2, iters = JULIA_LONG_TRANSPORT_LOG_MAP[case]
     r = log_map(G, bump((0, 0)), bump((shift, shift)))
     assert r.W2 == pytest.approx(W2, rel=1e-12)
-    assert r.iters == iters
+    # Julia's count, give or take the last iteration: the final residual can
+    # land either side of tol (CI once stopped the 16x16 at 27 with residual
+    # 6.4e-10 < 1e-9, where Julia and local runs take 28), from last-bit
+    # differences between machines. A forward-difference Jacobian is not
+    # within one: it failed outright.
+    assert abs(r.iters - iters) <= 1
