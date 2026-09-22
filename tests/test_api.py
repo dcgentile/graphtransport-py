@@ -71,11 +71,18 @@ def test_unknown_method_raises(setup):
         analysis(G, refs[0], refs, method="shooting", cost=cost, epsilon=0.1)
 
 
-def test_default_method_is_socp():
-    import inspect
-
-    for f in (geodesic, barycenter, analysis):
-        assert inspect.signature(f).parameters["method"].default == "socp"
+def test_method_is_required_and_the_error_explains_the_options(setup):
+    G, cost, _, refs = setup
+    for call in (
+        lambda: geodesic(G, refs[0], refs[1]),
+        lambda: transport_cost(G, refs[0], refs[1]),
+        lambda: barycenter(G, refs, [0.5, 0.3, 0.2]),
+        lambda: analysis(G, refs[0], refs),
+    ):
+        with pytest.raises(TypeError, match="method= is required") as excinfo:
+            call()
+        message = str(excinfo.value)
+        assert "'socp'" in message and "'sinkhorn'" in message
 
 
 def test_geodesic_shape_endpoints_and_nans(setup):
@@ -218,25 +225,25 @@ def test_socp_method_dispatches_to_socp_backend():
     Q, pi = triangle_markov_chain()
     G = MarkovGraph(Q, pi)
     refs = [np.array([2.0, 0.5, 0.5]), np.array([0.5, 2.0, 0.5]), np.array([0.5, 0.5, 2.0])]
-    sol = geodesic(G, refs[0], refs[1], N=4)  # default method
+    sol = geodesic(G, refs[0], refs[1], method="socp", N=4)
     assert isinstance(sol, GS)
     assert sol.W2 == pytest.approx(geodesic_socp(G, refs[0], refs[1], N=4).W2, rel=1e-8)
-    assert transport_cost(G, refs[0], refs[1], N=4) == pytest.approx(np.sqrt(sol.W2))
+    assert transport_cost(G, refs[0], refs[1], method="socp", N=4) == pytest.approx(np.sqrt(sol.W2))
     lam = np.array([0.5, 0.3, 0.2])
-    nu, J, info = barycenter(G, refs, lam, N=4)
+    nu, J, info = barycenter(G, refs, lam, method="socp", N=4)
     assert len(info["geodesics"]) == 3 and J == pytest.approx(sum(l * g.W2 for l, g in zip(lam, info["geodesics"])), rel=1e-8)
-    np.testing.assert_allclose(analysis(G, nu, refs, N=4), lam, atol=1e-3)
-    lam_hat, A = analysis(G, nu, refs, N=4, return_system=True)
+    np.testing.assert_allclose(analysis(G, nu, refs, method="socp", N=4), lam, atol=1e-3)
+    lam_hat, A = analysis(G, nu, refs, method="socp", N=4, return_system=True)
     assert A.shape == (3, 3)
 
 
 @pytest.mark.parametrize(
     "call",
     [
-        lambda G, cost, refs: geodesic(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=4),
-        lambda G, cost, refs: transport_cost(G, refs[0], refs[1], tol=1e-8),
-        lambda G, cost, refs: barycenter(G, refs, [0.5, 0.3, 0.2], cost=cost, epsilon=0.1),
-        lambda G, cost, refs: analysis(G, refs[0], refs, iters=64),
+        lambda G, cost, refs: geodesic(G, refs[0], refs[1], method="socp", cost=cost, epsilon=0.1, N=4),
+        lambda G, cost, refs: transport_cost(G, refs[0], refs[1], method="socp", tol=1e-8),
+        lambda G, cost, refs: barycenter(G, refs, [0.5, 0.3, 0.2], method="socp", cost=cost, epsilon=0.1),
+        lambda G, cost, refs: analysis(G, refs[0], refs, method="socp", iters=64),
     ],
 )
 def test_sinkhorn_keywords_without_the_method_say_so(setup, call):
@@ -268,6 +275,6 @@ def test_missing_cvxpy_names_the_extra_and_the_alternative(setup, monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_cvxpy)
     with pytest.raises(ImportError, match=r"graphtransport\[socp\]"):
-        geodesic(G, refs[0], refs[1], N=4)
+        geodesic(G, refs[0], refs[1], method="socp", N=4)
     with pytest.raises(ImportError, match="sinkhorn"):
-        barycenter(G, refs, [0.5, 0.3, 0.2], N=4)
+        barycenter(G, refs, [0.5, 0.3, 0.2], method="socp", N=4)
