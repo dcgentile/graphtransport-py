@@ -28,6 +28,7 @@ from julia_values import (
     JULIA_API_TRANSPORT_COST,
     JULIA_API_ANALYSIS_LAMBDA,
     JULIA_SOCP,
+    JULIA_BSOCP,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
@@ -162,3 +163,39 @@ def test_geodesic_socp_matches_julia():
         close(sol.m0, ref["m0"], 1e-4, "m0")
         close(sol.phi0, ref["phi0"], 1e-3, "phi0")
         close(sol.phi1, ref["phi1"], 1e-3, "phi1")
+
+
+def test_barycenter_socp_matches_julia():
+    # tests/julia_reference/socp_barycenter_reference.jl: barycenter_socp and
+    # analyze_socp on the triangle, refs = [2,.5,.5] and its rotations,
+    # lam = [0.5, 0.3, 0.2], N = 6, per conic mean. Agreement is to the two
+    # solvers' tolerance. lam_hat_momentum has no other test pinning it.
+    pytest.importorskip("cvxpy")
+    from graphtransport import (
+        ArithmeticMean, GeometricMean, HarmonicMean, QuadLogMean, triangle_markov_chain,
+    )
+    from graphtransport.socp import analyze_socp, barycenter_socp
+
+    G = MarkovGraph(*triangle_markov_chain())
+    refs = [np.array([2.0, 0.5, 0.5]), np.array([0.5, 2.0, 0.5]), np.array([0.5, 0.5, 2.0])]
+    lam = [0.5, 0.3, 0.2]
+    means = {
+        "GeometricMean": GeometricMean(),
+        "ArithmeticMean": ArithmeticMean(),
+        "HarmonicMean": HarmonicMean(),
+        "QuadLogMean(8)": QuadLogMean(8),
+    }
+    for name, mean in means.items():
+        ref = JULIA_BSOCP[name]
+        Gm = G.with_mean(mean)
+        nu, J, geodesics = barycenter_socp(Gm, refs, lam, N=6)
+        np.testing.assert_allclose(nu, ref["nu"], atol=1e-3, err_msg=f"{name} nu")
+        assert J == pytest.approx(ref["J"], rel=1e-4), name
+        np.testing.assert_allclose([g.W2 for g in geodesics], ref["W2s"], atol=1e-3, err_msg=f"{name} W2s")
+        np.testing.assert_allclose(
+            analyze_socp(Gm, nu, refs, N=6), ref["lam_hat"], atol=1e-3, err_msg=f"{name} lam_hat"
+        )
+        np.testing.assert_allclose(
+            analyze_socp(Gm, nu, refs, N=6, convention="momentum"), ref["lam_hat_momentum"],
+            atol=1e-3, err_msg=f"{name} lam_hat_momentum",
+        )

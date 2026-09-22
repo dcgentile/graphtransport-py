@@ -43,6 +43,10 @@ class GeodesicSolution:
     status: solver status; for method="sinkhorn", "converged" if the endpoint
     plan's marginals are met to `tol`, else "iteration_limit".
     solvetime: wall-clock seconds.
+    ref_index: for a geodesic that is part of a barycenter, the index of its
+    reference in the ``refs`` passed to barycenter; None for a standalone
+    geodesic. References with lam_i == 0 are not solved, so the list of
+    geodesics can be shorter than refs and this is what ties each one back.
 
     Methods that do not produce a quantity fill it with NaN (the Sinkhorn
     method has no momenta or potentials).
@@ -56,6 +60,7 @@ class GeodesicSolution:
     phi1: np.ndarray
     status: str
     solvetime: float
+    ref_index: int | None = None
 
 
 def _check_method(method: str, table: dict, what: str):
