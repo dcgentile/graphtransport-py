@@ -457,7 +457,7 @@ def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, flo
 
 def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
                              tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
-                             segments: int = 1, verbose: bool = False) -> float:
+                             segments="auto", verbose: bool = False) -> float:
     """W2 from log_map alone: the path integration geodesic() adds is not
     needed. Takes geodesic's keywords, verbose included."""
     from graphtransport.shooting import log_map
@@ -620,9 +620,9 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     default N=10 instead -- or raises, with ``fallback=False`` or
     without cvxpy installed. Keywords: ``fallback``, ``nsteps`` (integrator
     steps, default 150; rho then has nsteps + 1 columns), ``tol``,
-    ``maxiters``, ``phi0_init``, ``segments`` (default 1; more for multiple
-    shooting, faster on long transports and slower on short ones -- see
-    shooting.log_map and the README), ``verbose``. Honours every AdmissibleMean, including the exact
+    ``maxiters``, ``phi0_init``, ``segments`` (default "auto": single
+    shooting, switching to multiple shooting on a long transport; an integer
+    fixes it -- see shooting.log_map and the README), ``verbose``. Honours every AdmissibleMean, including the exact
     LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
     the two methods' potentials are directly comparable; status is
     "converged".

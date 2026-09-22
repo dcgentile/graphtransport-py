@@ -65,10 +65,11 @@ class LogMapResult:
     phi0: the initial potential, gauge <phi0, 1>_pi = 0. m0 = theta(nu) *
     grad phi0, the initial momentum. W2 = 2 H(nu, phi0), the squared transport
     distance. iters: Newton iterations taken (0 if the initial guess already
-    met ``tol``). residual: the final ||rho(1) - target||_pi, or with
-    segments > 1 the norm of every junction and endpoint residual together.
-    starts: with segments > 1, (rho_starts, phi_starts), the (n, segments)
-    states at the start of each segment; None for single shooting.
+    met ``tol``; with segments="auto", both phases). residual: the final
+    ||rho(1) - target||_pi, or, when solved by multiple shooting, the norm of
+    every junction and endpoint residual together. starts: when solved by
+    multiple shooting, (rho_starts, phi_starts), the (n, K) states at the start
+    of each segment; None for single shooting.
     """
 
     phi0: np.ndarray
@@ -289,10 +290,21 @@ def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r, (rho_s, phi_s))
 
 
+# segments="auto": after single shooting's first Newton step, switch to
+# multiple shooting with _AUTO_SEGMENTS segments if the line search had to cut
+# that step to _AUTO_SWITCH_STEP or less. Measured on n x n grids (5-12):
+# short transports (near-uniform densities) take full first steps, alpha = 1;
+# medium ones (a corner bump to the centre) 0.125-0.5; long ones (corner to
+# corner) 0.0625-0.125. K=8 was fastest on the long ones (32 s against 71 s
+# on 256 nodes), and on short ones every K > 1 was slower.
+_AUTO_SWITCH_STEP = 0.25
+_AUTO_SEGMENTS = 8
+
+
 def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
-            nsteps: int = 150, floor_rtol: float = 1e-6, segments: int = 1, verbose: bool = False) -> LogMapResult:
-    """The Riemannian logarithm of ``target`` at ``nu``, by single shooting,
-    or by multiple shooting with ``segments`` > 1.
+            nsteps: int = 150, floor_rtol: float = 1e-6, segments="auto", verbose: bool = False) -> LogMapResult:
+    """The Riemannian logarithm of ``target`` at ``nu``, by single or multiple
+    shooting.
 
     Solves F(phi0) = rho(1; nu, phi0) - target = 0 by damped Newton over the
     mean-zero potentials: n - 1 unknowns, since the gauge <phi0, 1>_pi = 0 and
@@ -308,7 +320,15 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     for far-apart concentrated endpoints, it is halved until the first shot
     survives.
 
-    ``segments`` > 1 solves by multiple shooting (shooting.multiple): Newton
+    ``segments="auto"`` (the default) starts with single shooting and, if
+    the line search cut the first Newton step to a quarter or less -- the
+    signature of a long transport -- switches to multiple shooting with 8
+    segments from its own default start; if multiple shooting fails, single
+    shooting carries on from its first step. Short transports stay single
+    shooting at no extra cost; a long one pays for one single-shooting step.
+    ``segments=1`` is single shooting throughout.
+
+    An integer ``segments`` > 1 solves by multiple shooting (shooting.multiple): Newton
     for the state at the start of each of that many segments of the
     integrator's step grid. It solves the same discrete problem, so the
     answer agrees with single shooting's to Newton's tolerance; what changes
@@ -330,8 +350,10 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         raise ValueError(f"maxiters must be an integer >= 0, got {maxiters!r}")
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
-    if isinstance(segments, bool) or not isinstance(segments, (int, np.integer)) or not 1 <= segments <= nsteps:
-        raise ValueError(f"segments must be an integer between 1 and nsteps ({nsteps}), got {segments!r}")
+    auto = isinstance(segments, str) and segments == "auto"
+    if not auto and (isinstance(segments, bool) or not isinstance(segments, (int, np.integer))
+                     or not 1 <= segments <= nsteps):  # fmt: skip
+        raise ValueError(f"segments must be 'auto' or an integer between 1 and nsteps ({nsteps}), got {segments!r}")
     floor_val = rho_floor(G, rtol=floor_rtol)
     nu = _check_interior(G, nu, floor_val, "nu")
     target = _check_interior(G, target, floor_val, "target")
@@ -346,7 +368,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     nu = nu / (nu @ G.pi)
     target = target / (target @ G.pi)
 
-    if segments > 1:
+    if not auto and segments > 1:
         return _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol,
                                  int(segments), verbose)  # fmt: skip
 
@@ -423,6 +445,23 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         iters += 1
         if verbose:
             logger.info("log_map: iter %d  residual %.3e  step %g", iters, r, alpha)
+        if auto and iters == 1 and r > tol and alpha <= _AUTO_SWITCH_STEP and nsteps >= 2:
+            auto = False  # decided once
+            K = min(_AUTO_SEGMENTS, int(nsteps))
+            if verbose:
+                logger.info("log_map: first step cut to %g; continuing by multiple shooting (segments=%d)", alpha, K)
+            try:
+                # Multiple shooting's own start, not a sweep from this iterate: after a
+                # heavily damped step the single trajectory ends far from the target, and
+                # its junction states started K=8 about 40% more Newton steps from the
+                # target (12x12 corner bumps: 10 against 7).
+                result = _log_map_multiple(G, nu, target, None, tol, maxiters - iters, nsteps, floor_val, floor_rtol, K,
+                                           verbose)  # fmt: skip
+            except ShootingError:
+                pass  # multiple shooting could not take it from here; single shooting carries on
+            else:
+                result.iters += iters
+                return result
 
     phi0 = _reduced_to_potential(G, z)
     m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
@@ -430,7 +469,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
 
 def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                     segments: int = 1, phi0_inits=None, compute_condition: bool = False,
+                     segments="auto", phi0_inits=None, compute_condition: bool = False,
                      return_system: bool = False, qp_method: str = "auto", qp_solver=None,
                      floor_rtol: float = 1e-6):
     """The shooting analysis backend: like analyze_socp, but each reference's
@@ -440,8 +479,8 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
 
     Requires strictly positive ``target`` and ``refs``; a failure on any one
     reference propagates. ``tol`` and ``maxiters`` are each log map's Newton
-    tolerance and iteration budget, and ``segments`` > 1 solves each by
-    multiple shooting; ``phi0_inits``, if given, holds one warm-start
+    tolerance and iteration budget, and ``segments`` chooses single or
+    multiple shooting for each (see log_map; default "auto"); ``phi0_inits``, if given, holds one warm-start
     potential per reference.
 
     This checks stationarity in the Hamiltonian flow's discretisation, which

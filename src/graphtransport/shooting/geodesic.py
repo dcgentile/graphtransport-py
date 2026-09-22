@@ -14,7 +14,7 @@ from graphtransport.shooting.hamiltonian import integrate_hamiltonian
 
 
 def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                      phi0_init=None, floor_rtol: float = 1e-6, segments: int = 1,
+                      phi0_init=None, floor_rtol: float = 1e-6, segments="auto",
                       verbose: bool = False) -> GeodesicSolution:
     """The geodesic from rhoA to rhoB: Newton shooting on the Hamiltonian flow
     (log_map) for the initial potential, then the flow integrated to produce
@@ -27,7 +27,8 @@ def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: flo
     comparable: phi0 = -2 phi(0) and phi1 = 2 phi(1), where phi is the flow's
     velocity potential.
 
-    With ``segments`` > 1 the log map is solved by multiple shooting, and the
+    When the log map is solved by multiple shooting (``segments`` > 1, or the
+    default "auto" on a long transport; see log_map), the
     path is integrated segment by segment from the solved junction states
     rather than in one sweep from phi0: over a long transport that sweep
     amplifies the error in phi0 the same way single shooting's Newton system

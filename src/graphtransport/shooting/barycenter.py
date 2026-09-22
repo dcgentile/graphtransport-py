@@ -26,7 +26,7 @@ def _positive_float(value, name: str, *, allow_zero: bool = False) -> float:
 
 def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: int = 200, tol: float = 1e-5,
                         ftol: float = 1e-12, nsteps: int = 150, log_tol: float = 1e-12, log_maxiters: int = 50,
-                        segments: int = 1, init=None, floor_rtol: float = 1e-6, verbose: bool = False):
+                        segments="auto", init=None, floor_rtol: float = 1e-6, verbose: bool = False):
     """The discrete transport barycenter of ``refs`` with weights ``lam``, by
     intrinsic gradient descent: each iteration log-maps nu to every reference
     (warm-started from the previous iteration, retried cold if that stalls),
