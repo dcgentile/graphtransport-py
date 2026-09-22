@@ -114,3 +114,41 @@ def test_analysing_with_a_different_mean_is_a_convention_mismatch():
     nu_h, _, _ = barycenter_socp(_triangle(HarmonicMean()), REFS, LAM, N=6)
     lam = analyze_socp(_triangle(ArithmeticMean()), nu_h, REFS, N=6)
     assert np.linalg.norm(lam - LAM) > 1e-3
+
+
+@pytest.mark.parametrize("N", [0, -2, 2.5, True, None])
+def test_barycenter_rejects_invalid_N(N):
+    with pytest.raises(ValueError, match="N must be an integer >= 1"):
+        barycenter_socp(_triangle(), REFS, LAM, N=N)
+
+
+def test_failed_barycenter_with_check_false_returns_nan_of_the_right_shape():
+    # Every .value is None after an infeasible solve: float(h * action) raised
+    # TypeError, and rho/m/nu would have come back as 0-d nan arrays.
+    G = _triangle()
+    refs = [REFS[0] * 1.5, REFS[1], REFS[2]]  # first reference has the wrong mass
+    with pytest.raises(RuntimeError, match="not a solution"):
+        barycenter_socp(G, refs, LAM, N=4)
+
+    nu, J, geodesics = barycenter_socp(G, refs, LAM, N=4, check=False)
+    assert nu.shape == (G.n,) and np.isnan(nu).all()
+    assert not np.isfinite(J)  # cvxpy reports +inf for an infeasible program
+    for g in geodesics:
+        assert g.rho.shape == (G.n, 5) and g.m.shape == (len(G.E), 4) and g.m0.shape == (len(G.E),)
+        assert np.isnan(g.W2) and np.isnan(g.rho).all() and np.isnan(g.m).all()
+    assert all(g.status == geodesics[0].status for g in geodesics)
+
+
+def test_barycenter_failure_message_carries_a_hint():
+    with pytest.raises(RuntimeError, match="check=False"):
+        barycenter_socp(_triangle(), [REFS[0] * 1.5, REFS[1], REFS[2]], LAM, N=4)
+
+
+def test_analyze_socp_takes_the_qp_method_and_rejects_a_stray_solver_keyword():
+    # method= used to fall through to cvxpy's problem.solve as KeyError('scipy').
+    G = _triangle()
+    nu, _, _ = barycenter_socp(G, REFS, LAM, N=6)
+    by_cvxpy = analyze_socp(G, nu, REFS, N=6, qp_method="cvxpy")
+    by_scipy = analyze_socp(G, nu, REFS, N=6, qp_method="scipy")
+    np.testing.assert_allclose(by_scipy, by_cvxpy, atol=1e-6)
+    np.testing.assert_allclose(by_scipy, LAM, atol=1e-3)

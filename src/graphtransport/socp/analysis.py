@@ -12,7 +12,8 @@ CONVENTIONS = ("potential", "momentum")
 
 
 def analyze_socp(G: MarkovGraph, target, refs, *, N: int = 10, solver=None, convention: str = "potential",
-                 compute_condition: bool = False, return_system: bool = False, qp_solver=None, **solver_kwargs):
+                 compute_condition: bool = False, return_system: bool = False, qp_method: str = "auto",
+                 qp_solver=None, **solver_kwargs):
     """Recover the barycentric coordinates of ``target`` with respect to
     ``refs``: solve the geodesic SOCP from target to each reference, build the
     Gram matrix of the resulting tangent vectors at target, and solve the
@@ -29,6 +30,11 @@ def analyze_socp(G: MarkovGraph, target, refs, *, N: int = 10, solver=None, conv
     Chambolle-Pock convention). m0 lives on the first time *interval*, so it
     is only an O(h) proxy for the endpoint potential; kept for comparison.
 
+    ``qp_method`` and ``qp_solver`` go to the simplex QP (gram.simplex_qp) and
+    are named apart from ``solver`` so the conic solver for the geodesics and
+    the QP backend can be chosen separately; every other keyword is passed to
+    the geodesic solver.
+
     Returns lam_hat, or (lam_hat, A) with return_system=True.
     """
     if convention not in CONVENTIONS:
@@ -39,7 +45,8 @@ def analyze_socp(G: MarkovGraph, target, refs, *, N: int = 10, solver=None, conv
     if convention == "potential":
         return potential_gram_qp(
             G, target, [geo.phi0 for geo in geodesics],
-            compute_condition=compute_condition, return_system=return_system, solver=qp_solver,
+            compute_condition=compute_condition, return_system=return_system, method=qp_method,
+            solver=qp_solver,
         )  # fmt: skip
 
     tangent_vectors = []
@@ -50,5 +57,6 @@ def analyze_socp(G: MarkovGraph, target, refs, *, N: int = 10, solver=None, conv
         tangent_vectors.append(m_dense)
     g = dense_metric_tensor(target, G.mean)
     return solve_barycentric_coordinates_qp(
-        tangent_vectors, g, compute_condition=compute_condition, return_system=return_system, solver=qp_solver
+        tangent_vectors, g, compute_condition=compute_condition, return_system=return_system,
+        method=qp_method, solver=qp_solver,
     )
