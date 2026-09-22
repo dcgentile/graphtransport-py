@@ -9,19 +9,19 @@ given densities. `analyze_shooting` and `log_map_mollified` are built on it.
 Scope. Everything here requires strictly positive densities; data supported
 on part of the graph belongs to the SOCP (exact) or `log_map_mollified`
 (approximate). The module is written for graphs of at most a few hundred
-nodes: `log_map`'s cost is dominated by its Jacobian, n full trajectories per
-Newton step. A Jacobian-free Newton-Krylov variant is the natural next step
-if larger graphs are needed.
+nodes: `log_map`'s cost is dominated by its Jacobian, n - 1 tangent
+trajectories per Newton step. A Jacobian-free Newton-Krylov variant is the
+natural next step if larger graphs are needed.
 
-Departure from the Julia original: Julia differentiates the flow map with
-ForwardDiff. Here the Jacobian is a forward finite difference, computed as a
-single *batched* integration of all n perturbed trajectories with a shared
-step schedule, so every difference quotient is taken on the same branch of
-the (piecewise-smooth, because of the positivity bisection) discrete flow map
--- the property that made ForwardDiff's derivative meaningful. The Jacobian
-is accurate to roughly 1e-7, which leaves Newton's convergence to 1e-9
-essentially unchanged: the error in the Newton step is that factor times the
-residual.
+The Jacobian is exact, as in the Julia original, which differentiates the
+flow map with ForwardDiff: here the torch flow's tangent-linear model
+(shooting.hamiltonian) is carried along the step schedule the shot took --
+forward-mode differentiation, with the n - 1 tangents in one batch.
+An earlier forward-difference Jacobian was accurate to ~1e-7 near the
+initial guess but not along the Newton path of a long transport, where the
+flow map bends sharply: on a 10x10 grid, two corner bumps, its error grew
+from 4e-7 to 2e-3 by the sixth iteration, the Newton direction turned by a
+degree, and the line search failed where Julia converges in 19 iterations.
 """
 
 from __future__ import annotations
@@ -31,26 +31,24 @@ import warnings
 from dataclasses import dataclass
 
 import numpy as np
+import torch
 from scipy import sparse
 from scipy.linalg import LinAlgError, cho_factor, cho_solve
 
 from graphtransport.graph import MarkovGraph, graph_gradient, metric_tensor
 from graphtransport.shooting.hamiltonian import (
+    _DTYPE,
     PositivityFloorError,
+    _as_tensor,
     _check_interior,
-    _integrate_end,
+    _torch_integrate,
+    _torch_replay_tangent,
     hamiltonian,
     integrate_hamiltonian,
     rho_floor,
 )
 
 logger = logging.getLogger(__name__)
-
-# Relative step of the finite-difference Jacobian. The discrete flow map is
-# evaluated to ~1e-13 after 150 RK4 steps, so the step balancing truncation
-# (~h) against that noise (~1e-13 / h) is about 3e-7.
-_FD_STEP = 3e-7
-
 
 class ShootingError(RuntimeError):
     """log_map could not solve the shooting problem: Newton did not converge,
@@ -239,14 +237,40 @@ def _reduced_to_potential(G: MarkovGraph, z: np.ndarray) -> np.ndarray:
     return np.concatenate([z, last[np.newaxis]], axis=0)
 
 
+def _torch_potential(G: MarkovGraph, z: torch.Tensor) -> torch.Tensor:
+    """_reduced_to_potential in torch, differentiably: z in R^(n-1) to the
+    gauge-fixed phi0 in R^n."""
+    pi = torch.as_tensor(G.pi, dtype=_DTYPE)
+    return torch.cat([z, (-(pi[:-1] @ z) / pi[-1]).reshape(1)])
+
+
+def _shoot(G: MarkovGraph, nu: torch.Tensor, z, nsteps: int, floor_val: float):
+    """rho(1) from (nu, phi0(z)) and the step schedule the shot took. Raises
+    PositivityFloorError as the integrator does."""
+    rho1, _, schedule, _ = _torch_integrate(G, nu, _torch_potential(G, _as_tensor(z)), nsteps, 1.0, floor_val)
+    return rho1, schedule
+
+
+def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndarray:
+    """d rho(1)[:n-1] / dz, exactly: the flow's tangent-linear model carried
+    along ``schedule``, which must be the schedule of the shot at z. The
+    tangents start at d phi0 / dz, the identity with the gauge row appended."""
+    n = G.n
+    pi = torch.as_tensor(G.pi, dtype=_DTYPE)
+    d_phi0 = torch.cat([torch.eye(n - 1, dtype=_DTYPE), (-pi[:-1] / pi[-1]).reshape(1, -1)])
+    phi0 = _torch_potential(G, _as_tensor(z))
+    _, _, d_rho1, _ = _torch_replay_tangent(G, nu, phi0, torch.zeros(n, n - 1, dtype=_DTYPE), d_phi0, schedule)
+    return d_rho1[: n - 1].numpy()
+
+
 def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
             nsteps: int = 150, floor_rtol: float = 1e-6, verbose: bool = False) -> LogMapResult:
     """The Riemannian logarithm of ``target`` at ``nu``, by single shooting.
 
     Solves F(phi0) = rho(1; nu, phi0) - target = 0 by damped Newton over the
     mean-zero potentials: n - 1 unknowns, since the gauge <phi0, 1>_pi = 0 and
-    the conserved mass each remove one dimension. The Jacobian is a batched
-    forward finite difference (see the module docstring), the step is chosen
+    the conserved mass each remove one dimension. The Jacobian is exact (see
+    the module docstring), the step is chosen
     by backtracking on ||F||_pi, and a step whose trajectory hits the
     positivity floor counts as a failed step and is shortened.
 
@@ -284,25 +308,15 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
     n = G.n
     sqrt_pi = np.sqrt(G.pi)
+    nu_t = _as_tensor(nu)
 
     def shoot(z):
-        # z of shape (n-1,) or (n-1, k); returns the full residual, same trailing shape
-        phi0 = _reduced_to_potential(G, z)
-        rho0 = np.broadcast_to(nu.reshape(-1, *(1,) * (z.ndim - 1)), phi0.shape)
-        rho1, _ = _integrate_end(G, rho0, phi0, nsteps, 1.0, floor_val)
-        return rho1 - target.reshape(-1, *(1,) * (z.ndim - 1))
+        # the full residual at z, and the step schedule the shot took
+        rho1, schedule = _shoot(G, nu_t, z, nsteps, floor_val)
+        return rho1.numpy() - target, schedule
 
     def resnorm(F):
         return float(np.linalg.norm(F * sqrt_pi))
-
-    def jacobian(z):
-        # Column 0 is the unperturbed shot, integrated in the same batch so it
-        # shares the perturbed columns' step schedule.
-        steps = _FD_STEP * np.maximum(1.0, np.abs(z))
-        Z = np.tile(z[:, np.newaxis], (1, n))
-        Z[np.arange(n - 1), np.arange(1, n)] += steps
-        F = shoot(Z)[: n - 1]
-        return (F[:, 1:] - F[:, [0]]) / steps
 
     if phi0_init is None:
         phi0 = solve_weighted_laplacian(G, nu, G.pi * (target - nu))
@@ -321,7 +335,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     F = None
     for _ in range(13):
         try:
-            F = shoot(z)
+            F, schedule = shoot(z)
             break
         except PositivityFloorError:
             z = z / 2
@@ -339,13 +353,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
                 f"log_map: Newton did not converge in {maxiters} iterations (residual {r:.3e} > tol {tol:.0e}). "
                 "Fall back to method='socp', or mollify the endpoints with log_map_mollified."
             )
-        try:
-            J = jacobian(z)
-        except PositivityFloorError as exc:
-            raise ShootingError(
-                "log_map: the Jacobian's perturbed trajectories hit the positivity floor, so the current iterate "
-                "is at the edge of what shooting can reach. Fall back to method='socp' or log_map_mollified."
-            ) from exc
+        J = _shooting_jacobian(G, nu_t, z, schedule)
         delta = -np.linalg.solve(J, F[: n - 1])
 
         # Backtracking on ||F||_pi; a floor hit is a failed step, shortened the same way.
@@ -353,11 +361,11 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         for _ in range(12):
             z_try = z + alpha * delta
             try:
-                F_try = shoot(z_try)
+                F_try, schedule_try = shoot(z_try)
             except PositivityFloorError:
                 F_try = None
             if F_try is not None and resnorm(F_try) <= (1 - 1e-4 * alpha) * r:
-                z, F, r = z_try, F_try, resnorm(F_try)
+                z, F, schedule, r = z_try, F_try, schedule_try, resnorm(F_try)
                 accepted = True
                 break
             alpha /= 2
@@ -365,8 +373,8 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
             raise ShootingError(
                 f"log_map: line search failed at iteration {iters + 1} (residual {r:.3e}). Near the positivity "
                 "floor the integrator's step bisection makes the residual piecewise-smooth in phi0, so Newton can "
-                "stall at the scale of those jumps; otherwise the target may be too far from nu for single "
-                "shooting. Fall back to method='socp', or mollify the endpoints with log_map_mollified."
+                "stall at the scale of those jumps. Fall back to method='socp', or mollify the endpoints with "
+                "log_map_mollified."
             )
         iters += 1
         if verbose:

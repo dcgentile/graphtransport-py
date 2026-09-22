@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+import torch
+from torch.func import jvp
 
 from graphtransport.means import (
     AdmissibleMean,
@@ -154,3 +156,59 @@ def test_logarithmic_mean_survives_extreme_ratios():
     s, t = _pairs()
     np.testing.assert_allclose(L(s, t), (s - t) / (np.log(s) - np.log(t)), rtol=1e-12)
     np.testing.assert_allclose(L.partial_s(s, t), (L(s, t) - L(s, t) ** 2 / s) / (s - t), rtol=1e-9)
+
+
+# ----- torch versions, used by the shooting flow -----
+
+
+def _interior_pairs():
+    s, t = _pairs(400, seed=3)
+    # the diagonal, the log mean's series switch, and extreme ratios
+    s = np.concatenate([s, [1.0, 1.0005, 1.0015, 2.0, 1e-8, 3.0]])
+    t = np.concatenate([t, [1.0, 1.0, 1.0, 2.0000001, 1.0, 1e-8]])
+    return s, t
+
+
+@pytest.mark.parametrize("theta", MEANS, ids=repr)
+def test_torch_versions_match_numpy(theta: AdmissibleMean):
+    s, t = _interior_pairs()
+    S, T = torch.tensor(s), torch.tensor(t)
+    np.testing.assert_allclose(theta.torch_theta(S, T).numpy(), theta(s, t), rtol=1e-14)
+    np.testing.assert_allclose(theta.torch_partial_s(S, T).numpy(), theta.partial_s(s, t), rtol=1e-12)
+
+
+@pytest.mark.parametrize("theta", MEANS, ids=repr)
+def test_torch_partial_s_is_the_derivative_of_torch_theta(theta: AdmissibleMean):
+    s, t = _pairs(300, seed=4)  # away from the extreme ratios, where autodiff of theta itself cancels
+    S = torch.tensor(s, requires_grad=True)
+    (grad,) = torch.autograd.grad(theta.torch_theta(S, torch.tensor(t)).sum(), S)
+    np.testing.assert_allclose(grad.numpy(), theta.torch_partial_s(torch.tensor(s), torch.tensor(t)).numpy(),
+                               rtol=1e-9)  # fmt: skip
+
+
+@pytest.mark.parametrize("theta", MEANS, ids=repr)
+def test_torch_second_derivatives_match_autodiff(theta: AdmissibleMean):
+    # torch_partial_s_grad is closed-form for most means; check it against
+    # torch's own derivative of torch_partial_s, which must also be nan-free
+    # across the log mean's series switch.
+    s, t = _interior_pairs()
+    S, T = torch.tensor(s), torch.tensor(t)
+    ones, zeros = torch.ones_like(S), torch.zeros_like(S)
+    d_s = jvp(theta.torch_partial_s, (S, T), (ones, zeros))[1]
+    d_t = jvp(theta.torch_partial_s, (S, T), (zeros, ones))[1]
+    got_s, got_t = theta.torch_partial_s_grad(S, T)
+    assert torch.isfinite(d_s).all() and torch.isfinite(d_t).all()
+    np.testing.assert_allclose(got_s.numpy(), d_s.numpy(), rtol=1e-8, atol=1e-12 * float(d_s.abs().max()))
+    np.testing.assert_allclose(got_t.numpy(), d_t.numpy(), rtol=1e-8, atol=1e-12 * float(d_t.abs().max()))
+
+
+def test_a_mean_without_torch_versions_says_what_shooting_needs():
+    class Custom(AdmissibleMean):
+        def __call__(self, s, t):
+            return np.sqrt(s * t)
+
+        def partial_s(self, s, t):
+            return np.sqrt(t / s) / 2
+
+    with pytest.raises(TypeError, match="Custom has no torch implementation.*method='socp'"):
+        Custom().torch_theta(torch.ones(2), torch.ones(2))

@@ -43,9 +43,22 @@ than the SOCP at its default N=10 on graphs above roughly 64 nodes, since
 each Newton step integrates n trajectories. For large graphs, or data near
 the boundary, pass `method="socp"`.
 
-Optional extras: `pip install "graphtransport[socp]"` for cvxpy and Clarabel;
-`"[torch]"` / `"[jax]"` for the autograd-native Sinkhorn backends. The
-default method needs none of them.
+### Installing
+
+PyTorch is a required dependency: the shooting method differentiates the
+Hamiltonian flow with it, so its Newton Jacobian is exact (as Julia's, which
+uses ForwardDiff, is). A plain `pip install torch` on Linux fetches the CUDA
+build, several GB; for the CPU build, install torch first from PyTorch's CPU
+index:
+
+```
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install graphtransport
+```
+
+Optional extras: `pip install "graphtransport[socp]"` for cvxpy and Clarabel,
+and `"[jax]"` for the JAX Sinkhorn backend. The default method needs neither.
+(`"[torch]"` still resolves, and installs nothing extra.)
 
 There is a `graphtransport-py-draft` sibling directory containing an earlier,
 unreviewed first attempt at a full port. It is kept only as reference material
@@ -56,6 +69,7 @@ and is not part of this package's history or design.
 ```
 python -m venv .venv
 source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
-pytest
+pytest              # the slow Julia cross-checks are deselected; pytest -m "" runs them too
 ```

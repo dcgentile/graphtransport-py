@@ -20,6 +20,14 @@ s = 0 or t = 0 (so theta(0, 0) = 0); partial_s takes its limiting value
 there, which may be +inf, except at (0, 0) where no limit exists and it is
 nan. A negative argument is outside the domain and gives nan. None of
 these cases emits a numpy warning.
+
+Each mean also has torch versions, torch_theta and torch_partial_s, used by
+the shooting flow so that torch's autodiff can differentiate it exactly. They
+are evaluated only in the interior (s, t > 0: the flow never runs at or below
+the positivity floor), so they skip the boundary conventions above, and they
+are written so no branch produces nan or inf there: torch.where passes the
+gradient of the branch it discards, and a nan in that branch would poison the
+derivative.
 """
 
 from __future__ import annotations
@@ -27,6 +35,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import numpy as np
+import torch
+from torch.func import jvp
 
 # Below this |s/t - 1| the logarithmic mean and its derivative switch to a
 # Taylor series so both are smooth through s == t (0/0 in the closed form).
@@ -53,6 +63,32 @@ class AdmissibleMean(ABC):
         """d theta / d t (s, t), i.e. partial_s(t, s) by symmetry."""
         return self.partial_s(t, s)
 
+    def torch_theta(self, s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """theta(s, t) on torch tensors, for s, t > 0."""
+        raise TypeError(
+            f"{type(self).__name__} has no torch implementation (torch_theta and torch_partial_s), which the "
+            "shooting method needs; method='socp' does not."
+        )
+
+    def torch_partial_s(self, s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """d theta / d s (s, t) on torch tensors, for s, t > 0."""
+        raise TypeError(
+            f"{type(self).__name__} has no torch implementation (torch_theta and torch_partial_s), which the "
+            "shooting method needs; method='socp' does not."
+        )
+
+    def torch_partial_s_grad(self, s: torch.Tensor, t: torch.Tensor):
+        """(d/ds, d/dt) of partial_s at (s, t), for s, t > 0: the second
+        derivatives the shooting Jacobian needs.
+
+        This default differentiates torch_partial_s with torch's autodiff, once:
+        every admissible mean is 1-homogeneous, so partial_s is 0-homogeneous
+        and Euler's relation s d/ds + t d/dt = 0 gives the second derivative
+        from the first. Means with a simple closed form override it; an
+        autodiff call per flow evaluation is the Jacobian's main cost."""
+        d_s = jvp(self.torch_partial_s, (s, t), (torch.ones_like(s), torch.zeros_like(t)))[1]
+        return d_s, -s * d_s / t
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
@@ -75,6 +111,15 @@ class GeometricMean(AdmissibleMean):
         with np.errstate(divide="ignore", invalid="ignore"):
             return np.sqrt(t / s) / 2
 
+    def torch_theta(self, s, t):
+        return torch.sqrt(s * t)
+
+    def torch_partial_s(self, s, t):
+        return torch.sqrt(t / s) / 2
+
+    def torch_partial_s_grad(self, s, t):
+        return -torch.sqrt(t / s) / (4 * s), 1 / (4 * torch.sqrt(s * t))
+
 
 class ArithmeticMean(AdmissibleMean):
     """theta(s, t) = (s + t) / 2. Does not vanish at an empty node."""
@@ -86,6 +131,16 @@ class ArithmeticMean(AdmissibleMean):
     def partial_s(self, s, t):
         s, t = _densities(s, t)
         return np.where(np.isnan(s + t), np.nan, 0.5)
+
+    def torch_theta(self, s, t):
+        return (s + t) / 2
+
+    def torch_partial_s(self, s, t):
+        return torch.full_like(s + t, 0.5)
+
+    def torch_partial_s_grad(self, s, t):
+        zero = torch.zeros_like(s + t)
+        return zero, zero
 
 
 class HarmonicMean(AdmissibleMean):
@@ -101,6 +156,16 @@ class HarmonicMean(AdmissibleMean):
         s, t = _densities(s, t)
         with np.errstate(invalid="ignore"):
             return 2 * t**2 / (s + t) ** 2
+
+    def torch_theta(self, s, t):
+        return 2 * s * t / (s + t)
+
+    def torch_partial_s(self, s, t):
+        return 2 * t**2 / (s + t) ** 2
+
+    def torch_partial_s_grad(self, s, t):
+        cube = (s + t) ** 3
+        return -4 * t**2 / cube, 4 * s * t / cube
 
 
 class LogarithmicMean(AdmissibleMean):
@@ -158,6 +223,36 @@ class LogarithmicMean(AdmissibleMean):
         L = cls._log(x)
         return np.where(np.abs(d) < _LOG_SERIES_SWITCH, series, (d - L) / L**2)
 
+    # Torch versions of the same, in the same symmetric form. Both ratios are
+    # in (0, 1] in the interior. Where the series is used, the closed form is
+    # evaluated at a harmless x = 0.5 instead of its 0/0, so the discarded
+    # branch contributes a zero gradient rather than a nan.
+
+    def torch_theta(self, s, t):
+        lo, hi = torch.minimum(s, t), torch.maximum(s, t)
+        return hi * self._torch_branches(lo / hi)[0]
+
+    def torch_partial_s(self, s, t):
+        below = s <= t
+        x = torch.where(below, s / t, t / s)
+        _, f_prime, f_minus_x_f_prime = self._torch_branches(x)
+        return torch.where(below, f_prime, f_minus_x_f_prime)
+
+    @staticmethod
+    def _torch_branches(x):
+        """(f, f', f - x f') at x in (0, 1]."""
+        d = x - 1
+        near = torch.abs(d) < _LOG_SERIES_SWITCH
+        xc = torch.where(near, torch.full_like(x, 0.5), x)
+        dc = xc - 1
+        L = torch.where(xc < 0.5, torch.log(xc), torch.log1p(dc))
+        f = torch.where(near, 1 + d * (1 / 2 + d * (-1 / 12 + d * (1 / 24 + d * (-19 / 720 + d * 3 / 160)))), dc / L)
+        f_prime = torch.where(
+            near, 1 / 2 + d * (-1 / 6 + d * (1 / 8 + d * (-19 / 180 + d * 3 / 32))), (L - dc / xc) / L**2
+        )
+        f_minus = torch.where(near, 1 / 2 + d * (1 / 6 + d * (-1 / 24 + d * (1 / 45 + d * -7 / 480))), (dc - L) / L**2)
+        return f, f_prime, f_minus
+
 
 class QuadLogMean(AdmissibleMean):
     """Gauss-Legendre approximation of the logarithmic mean with K nodes,
@@ -191,6 +286,24 @@ class QuadLogMean(AdmissibleMean):
         s, t = (x[..., np.newaxis] for x in _densities(s, t))
         with np.errstate(divide="ignore", invalid="ignore"):
             return (self.w * self.alpha * s ** (self.alpha - 1) * t ** (1 - self.alpha)).sum(axis=-1)
+
+    def torch_theta(self, s, t):
+        a, w = self._torch_nodes(s)
+        return (w * s[..., None] ** a * t[..., None] ** (1 - a)).sum(dim=-1)
+
+    def torch_partial_s(self, s, t):
+        a, w = self._torch_nodes(s)
+        return (w * a * s[..., None] ** (a - 1) * t[..., None] ** (1 - a)).sum(dim=-1)
+
+    def torch_partial_s_grad(self, s, t):
+        a, w = self._torch_nodes(s)
+        s_, t_ = s[..., None], t[..., None]
+        return ((w * a * (a - 1) * s_ ** (a - 2) * t_ ** (1 - a)).sum(dim=-1),
+                (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1))  # fmt: skip
+
+    def _torch_nodes(self, like):
+        return (torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
+                torch.as_tensor(self.w, dtype=like.dtype, device=like.device))  # fmt: skip
 
     def __repr__(self) -> str:
         return f"QuadLogMean({self.K})"

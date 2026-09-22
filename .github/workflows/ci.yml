@@ -16,12 +16,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # torch is a core dependency; the CPU wheel avoids pip's multi-GB CUDA default
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
-  # The torch, jax and cvxpy tests skip when their extra is missing, so the job
-  # above skips them all. This one installs every extra (CPU wheels), runs the
-  # whole suite, and fails if anything was skipped.
+  # The jax and cvxpy tests skip when their extra is missing, so the job above
+  # skips them. This one installs every extra (CPU wheels), runs the whole
+  # suite -- including the slow Julia cross-checks (-m "") -- and fails if
+  # anything was skipped.
   test-all-extras:
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +34,6 @@ jobs:
           python-version: "3.13"
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e ".[dev,torch,jax,socp]"
-      - run: pytest -q -rs | tee all-extras.log
+      - run: pytest -q -rs -m "" | tee all-extras.log
         shell: bash  # explicit bash runs with pipefail, so a pytest failure is not hidden by tee
       - run: "! grep -q SKIPPED all-extras.log"
