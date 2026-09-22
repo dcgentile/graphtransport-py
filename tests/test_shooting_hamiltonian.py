@@ -26,6 +26,15 @@ from graphtransport.shooting import (
 MEANS = [GeometricMean(), ArithmeticMean(), HarmonicMean(), LogarithmicMean(), QuadLogMean(8)]
 
 
+def _seeded_hypercube():
+    # weighted_hypercube_markov_chain draws fresh weights on every call (as in
+    # Julia); unseeded, each test run would check a different graph.
+    return weighted_hypercube_markov_chain(rng=0)
+
+
+GRAPHS = [triangle_markov_chain, _seeded_hypercube]
+
+
 def _two_node(mean=None):
     return MarkovGraph(np.array([[0.0, 1.0], [1.0, 0.0]]), np.array([0.5, 0.5]), mean=mean)
 
@@ -44,7 +53,7 @@ def _w_two_node(a, b):
     return abs(quad(lambda r: (1 - r**2) ** -0.25, a, b)[0] / np.sqrt(2))
 
 
-@pytest.mark.parametrize("builder", [triangle_markov_chain, weighted_hypercube_markov_chain])
+@pytest.mark.parametrize("builder", GRAPHS, ids=["triangle", "weighted_hypercube"])
 def test_conservation_laws(builder):
     # Mass and H are conserved, and 2H is the squared transport distance
     # between the flow's own endpoints -- i.e. the flow traces a genuine
@@ -63,7 +72,7 @@ def test_conservation_laws(builder):
         assert drift < 1e-4  # RK4 truncation error
 
 
-@pytest.mark.parametrize("builder", [triangle_markov_chain, weighted_hypercube_markov_chain])
+@pytest.mark.parametrize("builder", GRAPHS, ids=["triangle", "weighted_hypercube"])
 def test_twice_the_hamiltonian_is_the_squared_distance_to_the_endpoint(builder):
     pytest.importorskip("cvxpy")
     from graphtransport import geodesic
@@ -203,7 +212,7 @@ def test_invalid_max_halvings(max_halvings):
 
 
 def test_rho_floor_scales_with_the_stationary_distribution():
-    G = MarkovGraph(*weighted_hypercube_markov_chain())
+    G = MarkovGraph(*_seeded_hypercube())
     assert rho_floor(G) == pytest.approx(1e-6 * G.pi.min())
     assert rho_floor(G, rtol=1e-3) == pytest.approx(1e-3 * G.pi.min())
 
