@@ -210,7 +210,6 @@ def test_geodesic_path_matches_columnwise_barycenters(setup):
         np.testing.assert_allclose(sol.rho[:, k], nu, rtol=1e-12)
 
 
-
 def test_socp_method_dispatches_to_socp_backend():
     pytest.importorskip("cvxpy")
     from graphtransport import GeodesicSolution as GS, triangle_markov_chain
@@ -229,3 +228,46 @@ def test_socp_method_dispatches_to_socp_backend():
     np.testing.assert_allclose(analysis(G, nu, refs, N=4), lam, atol=1e-3)
     lam_hat, A = analysis(G, nu, refs, N=4, return_system=True)
     assert A.shape == (3, 3)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda G, cost, refs: geodesic(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=4),
+        lambda G, cost, refs: transport_cost(G, refs[0], refs[1], tol=1e-8),
+        lambda G, cost, refs: barycenter(G, refs, [0.5, 0.3, 0.2], cost=cost, epsilon=0.1),
+        lambda G, cost, refs: analysis(G, refs[0], refs, iters=64),
+    ],
+)
+def test_sinkhorn_keywords_without_the_method_say_so(setup, call):
+    # Before the guard these fell through to the conic solver and surfaced as
+    # "Clarabel: unrecognized solver setting 'cost'", naming everything except
+    # the keyword to change.
+    G, cost, _, refs = setup
+    with pytest.raises(TypeError, match="method='sinkhorn'"):
+        call(G, cost, refs)
+
+
+def test_sinkhorn_keywords_are_fine_with_the_sinkhorn_method(setup):
+    G, cost, _, refs = setup
+    assert transport_cost(G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1) > 0
+
+
+def test_missing_cvxpy_names_the_extra_and_the_alternative(setup, monkeypatch):
+    # The SOCP modules used to `import cvxpy as cp` directly, so the install
+    # hint in solvers.import_cvxpy could not fire on the default path.
+    import builtins
+
+    G, cost, _, refs = setup
+    real_import = builtins.__import__
+
+    def no_cvxpy(name, *args, **kwargs):
+        if name == "cvxpy" or name.startswith("cvxpy."):
+            raise ImportError("No module named 'cvxpy'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_cvxpy)
+    with pytest.raises(ImportError, match=r"graphtransport\[socp\]"):
+        geodesic(G, refs[0], refs[1], N=4)
+    with pytest.raises(ImportError, match="sinkhorn"):
+        barycenter(G, refs, [0.5, 0.3, 0.2], N=4)

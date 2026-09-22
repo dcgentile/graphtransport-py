@@ -69,6 +69,27 @@ def _check_method(method: str, table: dict, what: str):
         raise ValueError(f"{what}: method must be one of {tuple(table)}, got {method!r}")
 
 
+# Keywords only method="sinkhorn" understands. Every other method passes its
+# unknown keywords to a solver, where they surface as e.g. "Clarabel:
+# unrecognized solver setting 'cost'" -- an error that names everything except
+# the thing to change. Since method="socp" is the default, code written for the
+# Sinkhorn API hits that on its first call, so the check is worth doing here.
+SINKHORN_ONLY = ("cost", "epsilon", "iters", "tol", "alpha0")
+
+
+def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
+    if method == "sinkhorn":
+        return
+    stray = [k for k in SINKHORN_ONLY if k in kwargs]
+    if stray:
+        raise TypeError(
+            f"{what}: {', '.join(stray)} "
+            f"{'is a' if len(stray) == 1 else 'are'} method='sinkhorn' keyword"
+            f"{'' if len(stray) == 1 else 's'}, but method={method!r}. "
+            "Pass method='sinkhorn' to use them."
+        )
+
+
 # Input checks shared by every method. They live in the public entry points,
 # not in the per-method functions, so a new method cannot forget them.
 
@@ -257,6 +278,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = "socp", **kwargs) -> G
     returns, not rhoA/rhoB exactly; m, phi0, phi1 are NaN-filled.
     """
     _check_method(method, GEODESIC_METHODS, "geodesic")
+    _check_kwargs(method, kwargs, "geodesic")
     rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
@@ -269,6 +291,7 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = "socp", **kwargs
     path, and warns if that plan has not converged (there is no status to
     return)."""
     _check_method(method, GEODESIC_METHODS, "transport_cost")
+    _check_kwargs(method, kwargs, "transport_cost")
     if method in TRANSPORT_COST_METHODS:
         rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
         return float(np.sqrt(TRANSPORT_COST_METHODS[method](G, rhoA, rhoB, **kwargs)))
@@ -282,7 +305,10 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = "socp", **kwargs):
     method="socp" (default): one joint second-order-cone program
     (socp.barycenter_socp), solved to its global optimum.
     info = {"geodesics": [...]} holds one GeodesicSolution per reference
-    with lam_i > 0. Keywords: ``N``, ``solver``, ``check``, ``verbose``.
+    with lam_i > 0, each carrying the index of its reference as
+    ``ref_index``: references at weight zero are not solved, so the list can
+    be shorter than ``refs`` and ``geodesics[k]`` need not be the geodesic of
+    ``refs[k]``. Keywords: ``N``, ``solver``, ``check``, ``verbose``.
 
     method="sinkhorn": the entropically regularised Wasserstein barycenter
     for a ground cost (Benamou et al. 2015; Bonneel, Peyré & Cuturi 2016).
@@ -296,6 +322,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = "socp", **kwargs):
     Returns (nu, J, info).
     """
     _check_method(method, BARYCENTER_METHODS, "barycenter")
+    _check_kwargs(method, kwargs, "barycenter")
     refs = _check_refs(G, refs)
     lam = _check_weights(lam, len(refs))
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
@@ -324,5 +351,6 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = "socp", **kwargs) ->
     Returns lam_hat on the simplex.
     """
     _check_method(method, ANALYSIS_METHODS, "analysis")
+    _check_kwargs(method, kwargs, "analysis")
     target, refs = _check_density(G, target, "target"), _check_refs(G, refs)
     return ANALYSIS_METHODS[method](G, target, refs, **kwargs)
