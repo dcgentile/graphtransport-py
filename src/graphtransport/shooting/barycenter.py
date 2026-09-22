@@ -26,7 +26,7 @@ def _positive_float(value, name: str, *, allow_zero: bool = False) -> float:
 
 def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: int = 200, tol: float = 1e-5,
                         ftol: float = 1e-12, nsteps: int = 150, log_tol: float = 1e-12, init=None,
-                        verbose: bool = False):
+                        floor_rtol: float = 1e-6, verbose: bool = False):
     """The discrete transport barycenter of ``refs`` with weights ``lam``, by
     intrinsic gradient descent: each iteration log-maps nu to every reference
     (warm-started from the previous iteration, retried cold if that stalls),
@@ -64,7 +64,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     if not active:
         raise ValueError("at least one lam_i must be > 0")
 
-    floor_val = rho_floor(G)
+    floor_val = rho_floor(G, rtol=floor_rtol)
     if init is None:
         nu = sum(lam[i] * refs[i] for i in active)
     else:
@@ -79,7 +79,8 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
             result = None
             for start in (inits[i], None):
                 try:
-                    result = log_map(G, base, refs[i], nsteps=nsteps, tol=log_tol, phi0_init=start)
+                    result = log_map(G, base, refs[i], nsteps=nsteps, tol=log_tol, phi0_init=start,
+                                     floor_rtol=floor_rtol)
                     break
                 except (ShootingError, PositivityFloorError):
                     if start is None:
@@ -94,7 +95,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
 
     def gradient(base, rs):
         g = sum(lam[i] * rs[i].phi0 for i in active)  # the Riemannian descent direction, as a potential
-        return g, np.sqrt(2 * hamiltonian(G, base, g))  # and its metric norm at base
+        return g, np.sqrt(2 * hamiltonian(G, base, g, floor_rtol=floor_rtol))  # and its metric norm at base
 
     rs = logmaps(nu, {i: None for i in active})
     if rs is None:
@@ -120,7 +121,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
         for _ in range(20):
             try:
                 # kind is explicit: on a cycle n == |E| and inference would refuse
-                candidate = exp_map(G, nu, h * g, nsteps=nsteps, kind="potential")
+                candidate = exp_map(G, nu, h * g, nsteps=nsteps, kind="potential", floor_rtol=floor_rtol)
             except PositivityFloorError:
                 candidate = None
             unreachable = candidate is None or candidate.min() <= floor_val

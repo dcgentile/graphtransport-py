@@ -8,6 +8,7 @@ import pytest
 
 from graphtransport import (
     GeodesicSolution,
+    ShootingFallbackWarning,
     LogarithmicMean,
     MarkovGraph,
     analysis,
@@ -130,21 +131,107 @@ def _with_zeros(G, rho, k=2):
     return rho / (rho @ G.pi)
 
 
-@pytest.mark.parametrize(
-    "call, name",
-    [
-        (lambda G, A, B, Z: geodesic(G, A, Z), "rhoB"),
-        (lambda G, A, B, Z: transport_cost(G, Z, A), "rhoA"),
-        (lambda G, A, B, Z: barycenter(G, [A, Z], [0.5, 0.5]), r"refs\[1\]"),
-        (lambda G, A, B, Z: analysis(G, Z, [A, B]), "target"),
-        (lambda G, A, B, Z: analysis(G, A, [Z, B]), r"refs\[0\]"),
-    ],
-)
-def test_boundary_data_is_an_error_naming_the_argument_and_the_alternative(grid4, call, name):
+BOUNDARY_CALLS = [
+    (lambda G, A, B, Z, **kw: geodesic(G, A, Z, **kw), "rhoB"),
+    (lambda G, A, B, Z, **kw: transport_cost(G, Z, A, **kw), "rhoA"),
+    (lambda G, A, B, Z, **kw: barycenter(G, [A, Z], [0.5, 0.5], **kw), r"refs\[1\]"),
+    (lambda G, A, B, Z, **kw: analysis(G, Z, [A, B], **kw), "target"),
+    (lambda G, A, B, Z, **kw: analysis(G, A, [Z, B], **kw), r"refs\[0\]"),
+]
+BOUNDARY_IDS = ["geodesic", "transport_cost", "barycenter", "analysis-target", "analysis-ref"]
+
+
+@pytest.mark.parametrize("call, name", BOUNDARY_CALLS, ids=BOUNDARY_IDS)
+def test_boundary_data_falls_back_to_the_socp_with_a_warning(grid4, call, name):
+    pytest.importorskip("cvxpy")
+    G, A, B, _ = grid4
+    Z = _with_zeros(G, A)
+    with pytest.warns(ShootingFallbackWarning, match=f"{name} is not strictly positive.*Falling back to method='socp'"):
+        result = call(G, A, B, Z)
+    assert result is not None
+
+
+@pytest.mark.parametrize("call, name", BOUNDARY_CALLS, ids=BOUNDARY_IDS)
+def test_fallback_false_raises_naming_the_argument_and_the_alternative(grid4, call, name):
     G, A, B, _ = grid4
     Z = _with_zeros(G, A)
     with pytest.raises(ValueError, match=f"{name} is not strictly positive.*method='socp'"):
-        call(G, A, B, Z)
+        call(G, A, B, Z, fallback=False)
+
+
+def test_the_fallback_gives_the_socp_answer(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, _, _ = grid4
+    Z = _with_zeros(G, A)
+    with pytest.warns(ShootingFallbackWarning):
+        sol = geodesic(G, A, Z)
+    direct = geodesic(G, A, Z, method="socp")
+    assert sol.W2 == pytest.approx(direct.W2) and sol.status == direct.status == "optimal"
+    assert sol.rho.shape == direct.rho.shape  # the SOCP's N=10 path, not shooting's
+
+
+def test_a_barycenter_says_which_method_produced_it(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, B, _ = grid4
+    assert barycenter(G, [A, B], [0.5, 0.5])[2]["method"] == "shooting"
+    with pytest.warns(ShootingFallbackWarning):
+        _, _, info = barycenter(G, [A, _with_zeros(G, B)], [0.5, 0.5])
+    assert info["method"] == "socp" and "geodesics" in info
+    assert barycenter(G, [A, B], [0.5, 0.5], method="socp")[2]["method"] == "socp"
+
+
+def test_the_fallback_forwards_the_analysis_options_both_methods_share(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, B, C = grid4
+    with pytest.warns(ShootingFallbackWarning):
+        lam_hat, A_gram = analysis(G, _with_zeros(G, A), [A, B, C], return_system=True, qp_method="scipy")
+    assert A_gram.shape == (3, 3) and lam_hat.sum() == pytest.approx(1.0)
+
+
+def test_the_fallback_can_be_escalated_to_an_error(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, _, _ = grid4
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ShootingFallbackWarning)
+        with pytest.raises(ShootingFallbackWarning):
+            geodesic(G, A, _with_zeros(G, A))
+
+
+def test_without_cvxpy_the_shooting_error_is_raised_with_a_note(grid4, monkeypatch):
+    # an ImportError from the fallback would hide the actual problem
+    import graphtransport.solvers as solvers
+
+    monkeypatch.setattr(solvers, "cvxpy_available", lambda: False)
+    G, A, _, _ = grid4
+    with pytest.raises(ValueError, match=r"rhoB is not strictly positive.*fallback.*graphtransport\[socp\]"):
+        geodesic(G, A, _with_zeros(G, A))
+
+
+def test_the_warning_points_at_the_callers_line(grid4):
+    pytest.importorskip("cvxpy")
+    G, A, _, _ = grid4
+    for call in (lambda: geodesic(G, A, _with_zeros(G, A)), lambda: transport_cost(G, A, _with_zeros(G, A))):
+        with pytest.warns(ShootingFallbackWarning) as record:
+            call()
+        assert record[0].filename == __file__
+
+
+def test_floor_rtol_is_honoured_by_the_entry_point_check():
+    # With the default floor at the entry point and the caller's inside
+    # log_map, a density between the two passed one check and failed the
+    # other under log_map's internal name ("target").
+    G = MarkovGraph(*grid_markov_chain(3))
+    rng = np.random.default_rng(2)
+    A, B = _density(G, rng), _density(G, rng)
+    B[0] = 1e-5
+    B /= B @ G.pi
+    with pytest.raises(ValueError, match="rhoB is not strictly positive"):
+        geodesic(G, A, B, floor_rtol=1e-3, fallback=False)
+
+
+def test_transport_cost_takes_verbose_like_geodesic(grid4):
+    G, A, B, _ = grid4
+    assert transport_cost(G, A, B, verbose=False) == pytest.approx(np.sqrt(geodesic(G, A, B, verbose=False).W2))
 
 
 def test_the_socp_takes_the_same_boundary_data(grid4):
@@ -154,22 +241,36 @@ def test_the_socp_takes_the_same_boundary_data(grid4):
 
 
 def test_a_zero_weight_reference_may_touch_the_boundary(grid4):
-    # it is never log-mapped
+    # it is never log-mapped, so no fallback either
     G, A, B, _ = grid4
-    _, _, info = barycenter(G, [A, B, _with_zeros(G, A)], [0.5, 0.5, 0.0])
-    assert info["status"] == "converged"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ShootingFallbackWarning)
+        _, _, info = barycenter(G, [A, B, _with_zeros(G, A)], [0.5, 0.5, 0.0])
+    assert info["status"] == "converged" and info["method"] == "shooting"
 
 
-def test_near_boundary_failure_names_the_input_that_made_it_stiff():
-    # Passes the positivity check but defeats shooting: the internal error is
-    # re-raised with the argument and its smallest entry.
+def _near_boundary_pair():
+    # passes the positivity check, but a row at 1e-5 defeats shooting on a 5x5 grid
     G = MarkovGraph(*grid_markov_chain(5))
     rng = np.random.default_rng(1)
     A, B = _density(G, rng), _density(G, rng)
     B[:5] = 1e-5
     B /= B @ G.pi
+    return G, A, B
+
+
+def test_near_boundary_failure_names_the_input_that_made_it_stiff():
+    G, A, B = _near_boundary_pair()
     with pytest.raises(ShootingError, match=r"smallest density involved is 1\.\de-05, in rhoB.*method='socp'"):
-        transport_cost(G, A, B)
+        transport_cost(G, A, B, fallback=False)
+
+
+def test_near_boundary_failure_falls_back_too():
+    pytest.importorskip("cvxpy")
+    G, A, B = _near_boundary_pair()
+    with pytest.warns(ShootingFallbackWarning, match=r"failed near the boundary \(smallest density 1\.\de-05, in rhoB\)"):
+        w = transport_cost(G, A, B)
+    assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
 
 
 def test_a_mass_error_the_api_admits_is_absorbed(grid4):
@@ -190,6 +291,7 @@ def test_a_mass_error_the_api_admits_is_absorbed(grid4):
         ({"nsteps": 10}, "socp", "nsteps .*method='shooting'"),
         ({"tol": 1e-8}, "socp", "tol .*method='shooting' and method='sinkhorn'"),
         ({"maxiters": 5}, "sinkhorn", "maxiters .*method='shooting'"),
+        ({"fallback": False}, "socp", "fallback .*method='shooting'"),
     ],
 )
 def test_a_keyword_owned_by_another_method_is_rejected_by_name(grid4, kwargs, method, match):

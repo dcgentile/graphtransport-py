@@ -368,7 +368,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
 def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, phi0_inits=None,
                      compute_condition: bool = False, return_system: bool = False, qp_method: str = "auto",
-                     qp_solver=None):
+                     qp_solver=None, floor_rtol: float = 1e-6):
     """The shooting analysis backend: like analyze_socp, but each reference's
     potential is log_map(G, target, ref).phi0 -- the Hamiltonian velocity
     potential at ``target`` -- instead of the SOCP's endpoint dual. The Gram
@@ -395,7 +395,8 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     if phi0_inits is not None and len(phi0_inits) != len(refs):
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
     potentials = [
-        log_map(G, target, ref, nsteps=nsteps, tol=tol, phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
+        log_map(G, target, ref, nsteps=nsteps, tol=tol, floor_rtol=floor_rtol,
+                phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(

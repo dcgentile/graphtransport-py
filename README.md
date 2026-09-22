@@ -23,8 +23,11 @@ are cross-checked against values produced by the Julia package itself
 - **`method="shooting"` (default)** -- Newton shooting on the Hamiltonian
   flow. Exact in time, needs no optional dependency, and works with every
   admissible mean, including the exact logarithmic mean. It requires
-  **strictly positive** densities: data that is zero somewhere is an error
-  that says to use the SOCP instead.
+  **strictly positive** densities. Given data that is zero somewhere, or
+  close enough to zero that shooting fails, it warns
+  (`ShootingFallbackWarning`) and falls back to the SOCP at its default
+  N=10 -- if cvxpy is installed; otherwise it raises. Pass `fallback=False`
+  to always get the error instead.
 - **`method="socp"`** -- a second-order-cone program. Handles densities
   supported on part of the graph, and its barycenter is a global optimum,
   which makes it the certificate for the others. Time-discretisation error
