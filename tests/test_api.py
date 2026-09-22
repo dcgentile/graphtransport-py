@@ -68,21 +68,14 @@ def test_unknown_method_raises(setup):
     with pytest.raises(ValueError, match="method must be one of"):
         geodesic(G, refs[0], refs[1], method="chambolle_pock", cost=cost, epsilon=0.1)
     with pytest.raises(ValueError, match="method must be one of"):
-        analysis(G, refs[0], refs, method="shooting", cost=cost, epsilon=0.1)
+        analysis(G, refs[0], refs, method="entropic", cost=cost, epsilon=0.1)
 
 
-def test_method_is_required_and_the_error_explains_the_options(setup):
-    G, cost, _, refs = setup
-    for call in (
-        lambda: geodesic(G, refs[0], refs[1]),
-        lambda: transport_cost(G, refs[0], refs[1]),
-        lambda: barycenter(G, refs, [0.5, 0.3, 0.2]),
-        lambda: analysis(G, refs[0], refs),
-    ):
-        with pytest.raises(TypeError, match="method= is required") as excinfo:
-            call()
-        message = str(excinfo.value)
-        assert "'socp'" in message and "'sinkhorn'" in message
+def test_default_method_is_shooting():
+    import inspect
+
+    for f in (geodesic, transport_cost, barycenter, analysis):
+        assert inspect.signature(f).parameters["method"].default == "shooting"
 
 
 def test_geodesic_shape_endpoints_and_nans(setup):
