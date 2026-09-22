@@ -43,6 +43,36 @@ than the SOCP at its default N=10 on graphs above roughly 64 nodes, since
 each Newton step integrates n trajectories. For large graphs, or data near
 the boundary, pass `method="socp"`.
 
+### Differentiable geodesics
+
+`geodesic` and `transport_cost` accept torch tensors and return tensors. With
+the default `method="shooting"`, gradients flow back to both endpoints
+through W2, the density path, the momenta and the potentials:
+
+```python
+import torch
+import graphtransport as gt
+
+G = gt.MarkovGraph(*gt.grid_markov_chain(5))
+pi = torch.tensor(G.pi)
+logits = torch.zeros(G.n, requires_grad=True)
+rhoA = torch.softmax(logits, 0) / pi          # a density w.r.t. pi
+rhoB = torch.linspace(0.5, 1.5, G.n, dtype=torch.float64)
+rhoB = rhoB / (rhoB @ pi)
+gt.transport_cost(G, rhoA, rhoB).backward()   # logits.grad is d W / d logits
+```
+
+The gradients are exact for the discrete problem the solver solves, obtained
+by the implicit function theorem rather than by differentiating through
+Newton's iterations, so they agree with finite differences of the returned
+values. They are first order only: differentiating a gradient again
+(`create_graph=True`, for a gradient penalty or a Hessian-vector product)
+raises. Where `rhoA == rhoB`, `transport_cost`'s gradient is 0, the
+subgradient at its minimum (as for `torch.linalg.norm`). The SOCP and Sinkhorn
+methods are not differentiable here: with inputs that require grad they
+raise, and so does shooting where it would otherwise fall back to the SOCP.
+`barycenter` and `analysis` do not take tensors yet.
+
 ### Installing
 
 PyTorch is a required dependency: the shooting method differentiates the
