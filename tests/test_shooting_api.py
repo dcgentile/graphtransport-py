@@ -261,14 +261,46 @@ def _near_boundary_pair():
 
 def test_near_boundary_failure_names_the_input_that_made_it_stiff():
     G, A, B = _near_boundary_pair()
-    with pytest.raises(ShootingError, match=r"smallest density involved is 1\.\de-05, in rhoB.*method='socp'"):
+    with pytest.raises(ShootingError, match=r"smallest input density is 1\.\de-05, in rhoB\..*method='socp'"):
         transport_cost(G, A, B, fallback=False)
 
 
 def test_near_boundary_failure_falls_back_too():
     pytest.importorskip("cvxpy")
     G, A, B = _near_boundary_pair()
-    with pytest.warns(ShootingFallbackWarning, match=r"failed near the boundary \(smallest density 1\.\de-05, in rhoB\)"):
+    match = r"did not converge \(.*; smallest input density 1\.\de-05, in rhoB\)"
+    with pytest.warns(ShootingFallbackWarning, match=match):
+        w = transport_cost(G, A, B)
+    assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
+
+
+def _long_transport_pair():
+    # both endpoints well inside (smallest density 0.37), but corner to corner
+    # on a 10x10 grid is too long for single shooting: the path thins to 0.05
+    k = 10
+    G = MarkovGraph(*grid_markov_chain(k))
+    xy = np.array([(i % k, i // k) for i in range(G.n)], dtype=float)
+
+    def bump(center):
+        rho = np.exp(-((xy - center) ** 2).sum(axis=1) / 8) + 0.05
+        return rho / (rho @ G.pi)
+
+    return G, bump((0, 0)), bump((k - 1, k - 1))
+
+
+def test_a_long_transport_failure_names_both_causes_not_the_boundary():
+    G, A, B = _long_transport_pair()
+    with pytest.raises(ShootingError, match=r"smallest input density is 3\.7e-01, in rhoA\. .*mass travels far") as info:
+        transport_cost(G, A, B, fallback=False)
+    assert "near the boundary" not in str(info.value)
+
+
+def test_a_long_transport_failure_falls_back_with_the_real_error():
+    pytest.importorskip("cvxpy")
+    G, A, B = _long_transport_pair()
+    match = (r"did not converge \(log_map: line search failed at iteration \d+ \(residual [^)]+\); "
+             r"smallest input density 3\.7e-01, in rhoA\)")
+    with pytest.warns(ShootingFallbackWarning, match=match):
         w = transport_cost(G, A, B)
     assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
 

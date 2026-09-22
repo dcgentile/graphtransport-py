@@ -23,11 +23,14 @@ are cross-checked against values produced by the Julia package itself
 - **`method="shooting"` (default)** -- Newton shooting on the Hamiltonian
   flow. Exact in time, needs no optional dependency, and works with every
   admissible mean, including the exact logarithmic mean. It requires
-  **strictly positive** densities. Given data that is zero somewhere, or
-  close enough to zero that shooting fails, it warns
-  (`ShootingFallbackWarning`) and falls back to the SOCP at its default
-  N=10 -- if cvxpy is installed; otherwise it raises. Pass `fallback=False`
-  to always get the error instead.
+  **strictly positive** densities, and it can fail on long transports even
+  between densities well away from zero: single shooting is ill-conditioned
+  when mass travels far and the path between the endpoints thins out. (On a
+  10x10 grid, two Gaussian bumps in opposite corners, smallest density 0.37,
+  fail.) Given data that is zero somewhere, or that shooting fails on, it
+  warns (`ShootingFallbackWarning`) and falls back to the SOCP at its
+  default N=10 -- if cvxpy is installed; otherwise it raises. Pass
+  `fallback=False` to always get the error instead.
 - **`method="socp"`** -- a second-order-cone program. Handles densities
   supported on part of the graph, and its barycenter is a global optimum,
   which makes it the certificate for the others. Time-discretisation error
@@ -37,11 +40,22 @@ are cross-checked against values produced by the Julia package itself
   and it blurs.
 
 The default diverges from the Julia package, which defaults to `:socp`.
-Shooting wins at matched accuracy -- 150 RK4 steps agree with the SOCP at
-N=40 to 4-5 digits, at about a third of the cost -- but it is not faster
-than the SOCP at its default N=10 on graphs above roughly 64 nodes, since
-each Newton step integrates n trajectories. For large graphs, or data near
-the boundary, pass `method="socp"`.
+What shooting offers is exactness in time and no conic-solver dependency,
+not speed. Measured on n x n grids of 9 to 256 nodes (seconds per geodesic,
+after cvxpy's first-call overhead):
+
+- The SOCP at its default N=10 was faster than shooting on every problem
+  tried. On near-uniform densities its W2 agreed with shooting's to 1e-4
+  relative or better; on concentrated Gaussian bumps, to about 3e-3.
+- Against the SOCP at N=40, shooting was 2-5x faster on near-uniform
+  densities from 25 nodes up, and about even on the bumps. Below 25 nodes
+  the SOCP was faster at either N.
+- Shooting's cost depends on the data, not just the graph: on 64 nodes it
+  took 0.3 s for near-uniform densities and 1.9 s for bumps in opposite
+  corners.
+
+For large graphs, long transports, or data near the boundary, pass
+`method="socp"`.
 
 ### Differentiable geodesics
 
