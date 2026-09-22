@@ -100,7 +100,7 @@ def _check_method(method: str, table: dict, what: str):
 # to the method's signature.
 METHOD_KEYWORDS = {
     "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
-                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback"}),
+                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback", "segments"}),
     "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
     "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
 }  # fmt: skip
@@ -457,7 +457,7 @@ def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, flo
 
 def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
                              tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
-                             verbose: bool = False) -> float:
+                             segments: int = 1, verbose: bool = False) -> float:
     """W2 from log_map alone: the path integration geodesic() adds is not
     needed. Takes geodesic's keywords, verbose included."""
     from graphtransport.shooting import log_map
@@ -467,7 +467,7 @@ def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = Tru
         b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
         with _explain_shooting_failure("transport_cost", rhoA=a, rhoB=b):
             return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                           floor_rtol=floor_rtol, verbose=verbose).W2  # fmt: skip
+                           floor_rtol=floor_rtol, segments=segments, verbose=verbose).W2  # fmt: skip
 
     return _with_fallback("transport_cost", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB).W2)
 

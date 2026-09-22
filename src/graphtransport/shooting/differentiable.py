@@ -59,11 +59,14 @@ class _LogMapPotential(torch.autograd.Function):
     probability densities w.r.t. G.pi (the caller normalises them)."""
 
     @staticmethod
-    def forward(ctx, nu, target, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init):
+    def forward(ctx, nu, target, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
         from graphtransport.shooting.explog import log_map
 
+        # With segments > 1 z* comes from multiple shooting; the backward's
+        # Jacobian is still single shooting's at z*, which is exact: both solve
+        # the same discrete problem.
         r = log_map(G, nu.detach().numpy(), target.detach().numpy(), tol=tol, maxiters=maxiters, nsteps=nsteps,
-                    floor_rtol=floor_rtol, verbose=verbose, phi0_init=phi0_init)  # fmt: skip
+                    floor_rtol=floor_rtol, verbose=verbose, phi0_init=phi0_init, segments=segments)  # fmt: skip
         z = torch.as_tensor(r.phi0[: G.n - 1], dtype=_DTYPE)
         ctx.save_for_backward(nu.detach(), z)
         ctx.G, ctx.nsteps, ctx.floor_val = G, nsteps, rho_floor(G, rtol=floor_rtol)
@@ -87,7 +90,7 @@ class _LogMapPotential(torch.autograd.Function):
                 rho1 = _torch_replay(G, nu_req, _torch_potential(G, z), schedule)[0][: n - 1]
                 (vjp,) = torch.autograd.grad(rho1, nu_req, grad_outputs=w)
             nu_bar = -vjp
-        return nu_bar, target_bar, None, None, None, None, None, None, None
+        return nu_bar, target_bar, None, None, None, None, None, None, None, None
 
 
 def _torch_hamiltonian(G: MarkovGraph, rho: torch.Tensor, phi: torch.Tensor) -> torch.Tensor:
@@ -113,25 +116,25 @@ def _normalise(G: MarkovGraph, rho: torch.Tensor) -> torch.Tensor:
     return rho / (rho @ torch.as_tensor(G.pi, dtype=_DTYPE))
 
 
-def _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init):
+def _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
     a, b = _normalise(G, rhoA), _normalise(G, rhoB)
-    z = _LogMapPotential.apply(a, b, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init)
+    z = _LogMapPotential.apply(a, b, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     return a, _torch_potential(G, z)
 
 
 def transport_cost_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
                                   tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6,
-                                  verbose: bool = False, phi0_init=None) -> torch.Tensor:
+                                  verbose: bool = False, phi0_init=None, segments: int = 1) -> torch.Tensor:
     """W2 between rhoA and rhoB (densities w.r.t. G.pi, float64 tensors) by
     shooting, as a 0-d tensor differentiable to first order (see the module
     docstring)."""  # fmt: skip
-    a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init)
+    a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     return 2 * _torch_hamiltonian(G, a, phi0)
 
 
 def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
                             tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6, verbose: bool = False,
-                            phi0_init=None):
+                            phi0_init=None, segments: int = 1):
     """The shooting geodesic as a GeodesicSolution of differentiable tensors:
     W2, the density and potential paths, the momenta and the endpoint
     potentials all carry gradients back to rhoA and rhoB, to first order (see
@@ -139,7 +142,7 @@ def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tens
     from graphtransport.api import GeodesicSolution
 
     t0 = time.perf_counter()
-    a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init)
+    a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     _, _, schedule, _ = _torch_integrate(G, a.detach(), phi0.detach(), nsteps, 1.0, rho_floor(G, rtol=floor_rtol))
     rho_path, phi_path = _torch_replay_path(G, a, phi0, schedule)
     x, y, _, _ = _torch_edges(G)

@@ -65,7 +65,10 @@ class LogMapResult:
     phi0: the initial potential, gauge <phi0, 1>_pi = 0. m0 = theta(nu) *
     grad phi0, the initial momentum. W2 = 2 H(nu, phi0), the squared transport
     distance. iters: Newton iterations taken (0 if the initial guess already
-    met ``tol``). residual: the final ||rho(1) - target||_pi.
+    met ``tol``). residual: the final ||rho(1) - target||_pi, or with
+    segments > 1 the norm of every junction and endpoint residual together.
+    starts: with segments > 1, (rho_starts, phi_starts), the (n, segments)
+    states at the start of each segment; None for single shooting.
     """
 
     phi0: np.ndarray
@@ -73,6 +76,7 @@ class LogMapResult:
     W2: float
     iters: int
     residual: float
+    starts: tuple | None = None
 
 
 @dataclass
@@ -263,9 +267,32 @@ def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndar
     return d_rho1[: n - 1].numpy()
 
 
+def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose):
+    """log_map by multiple shooting (shooting.multiple). A phi0_init is used
+    as a warm start by sweeping the flow from it once and taking the states at
+    the segment starts; if that sweep hits the floor, the default start is used."""
+    from graphtransport.shooting.multiple import initial_states_from_potential, solve_multiple_shooting
+
+    init = None
+    if phi0_init is not None:
+        phi0 = np.asarray(phi0_init, dtype=float)
+        if phi0.shape != (G.n,):
+            raise ValueError(f"phi0_init must have shape ({G.n},), got {phi0.shape}")
+        if not np.all(np.isfinite(phi0)):
+            raise ValueError("phi0_init has non-finite entries")
+        init = initial_states_from_potential(G, nu, _gauge(G, phi0), segments, nsteps, floor_val)
+    rho_s, phi_s, iters, r = solve_multiple_shooting(G, nu, target, segments=segments, nsteps=nsteps, tol=tol,
+                                                     maxiters=maxiters, floor_val=floor_val, verbose=verbose,
+                                                     init=init)  # fmt: skip
+    phi0 = phi_s[:, 0]
+    m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
+    return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r, (rho_s, phi_s))
+
+
 def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
-            nsteps: int = 150, floor_rtol: float = 1e-6, verbose: bool = False) -> LogMapResult:
-    """The Riemannian logarithm of ``target`` at ``nu``, by single shooting.
+            nsteps: int = 150, floor_rtol: float = 1e-6, segments: int = 1, verbose: bool = False) -> LogMapResult:
+    """The Riemannian logarithm of ``target`` at ``nu``, by single shooting,
+    or by multiple shooting with ``segments`` > 1.
 
     Solves F(phi0) = rho(1; nu, phi0) - target = 0 by damped Newton over the
     mean-zero potentials: n - 1 unknowns, since the gauge <phi0, 1>_pi = 0 and
@@ -292,6 +319,8 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         raise ValueError(f"maxiters must be an integer >= 0, got {maxiters!r}")
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
+    if isinstance(segments, bool) or not isinstance(segments, (int, np.integer)) or not 1 <= segments <= nsteps:
+        raise ValueError(f"segments must be an integer between 1 and nsteps ({nsteps}), got {segments!r}")
     floor_val = rho_floor(G, rtol=floor_rtol)
     nu = _check_interior(G, nu, floor_val, "nu")
     target = _check_interior(G, target, floor_val, "target")
@@ -305,6 +334,10 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     # perturbation of the same, negligible, size.
     nu = nu / (nu @ G.pi)
     target = target / (target @ G.pi)
+
+    if segments > 1:
+        return _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol,
+                                 int(segments), verbose)  # fmt: skip
 
     n = G.n
     sqrt_pi = np.sqrt(G.pi)
@@ -386,8 +419,9 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
 
 def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                     phi0_inits=None, compute_condition: bool = False, return_system: bool = False,
-                     qp_method: str = "auto", qp_solver=None, floor_rtol: float = 1e-6):
+                     segments: int = 1, phi0_inits=None, compute_condition: bool = False,
+                     return_system: bool = False, qp_method: str = "auto", qp_solver=None,
+                     floor_rtol: float = 1e-6):
     """The shooting analysis backend: like analyze_socp, but each reference's
     potential is log_map(G, target, ref).phi0 -- the Hamiltonian velocity
     potential at ``target`` -- instead of the SOCP's endpoint dual. The Gram
@@ -395,8 +429,9 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
 
     Requires strictly positive ``target`` and ``refs``; a failure on any one
     reference propagates. ``tol`` and ``maxiters`` are each log map's Newton
-    tolerance and iteration budget; ``phi0_inits``, if given, holds one
-    warm-start potential per reference.
+    tolerance and iteration budget, and ``segments`` > 1 solves each by
+    multiple shooting; ``phi0_inits``, if given, holds one warm-start
+    potential per reference.
 
     This checks stationarity in the Hamiltonian flow's discretisation, which
     differs from barycenter_socp's, so a barycenter synthesised by the SOCP is
@@ -419,7 +454,7 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
     potentials = [
         log_map(G, target, ref, nsteps=nsteps, tol=tol, maxiters=maxiters, floor_rtol=floor_rtol,
-                phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
+                segments=segments, phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(
