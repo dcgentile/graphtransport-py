@@ -218,6 +218,19 @@ now available), `@testset "analyze_shooting..."`.
     `@testset "SOCP with each admissible mean"`'s "barycenter + analysis
     round trip per mean" (both methods, same graph, cross-checked).
 
+    **This step also makes `method="shooting"` the default** and drops the
+    required-`method` sentinel added in step 13. Shooting is often
+    substantially faster than the SOCP, which is why it wins the default
+    here even though the Julia package defaults to `:socp` -- a deliberate
+    divergence, recorded in the README. Two things come with the flip:
+    shooting needs **strictly positive** densities, so the entry points
+    check that when `method="shooting"` is selected and point a failure at
+    `method="socp"` (exact for boundary-supported data) or the mollified
+    log map (approximate); and Julia enforces positivity with `@assert`
+    (`shooting/Hamiltonian.jl:108`, `shooting/ExpLog.jl:138`), which
+    `python -O` strips, so these must be real `ValueError`s -- the same fix
+    PR #17 made for `markov_chain_from_weight_matrix`.
+
 ## Phase 6 -- Chambolle-Pock: recommend skipping
 
 Source: `src/chambolle_pock/*.jl` (the largest single subsystem: custom

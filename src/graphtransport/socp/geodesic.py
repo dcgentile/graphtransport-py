@@ -37,7 +37,7 @@ from graphtransport.means import (
     LogarithmicMean,
     QuadLogMean,
 )
-from graphtransport.solvers import solve_conic
+from graphtransport.solvers import import_cvxpy, solve_conic
 
 
 def _mean_cone(cp, mean: AdmissibleMean, rx, ry, theta):
@@ -89,7 +89,7 @@ def geodesic_block(G: MarkovGraph, N: int, h: float, left, right) -> dict:
     ``action``, the expression sum_e kappa_e w_{e,t} summed over t (the
     block's contribution to the objective before the factor h).
     """
-    import cvxpy as cp
+    cp = import_cvxpy()
 
     n = G.n
     nE = G.E.shape[0]
@@ -155,7 +155,7 @@ def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check
     than returning the solver's last iterate. Extra keyword arguments are
     passed to the cvxpy solver.
     """
-    import cvxpy as cp
+    cp = import_cvxpy()
 
     _check_steps(N)
     h = 1.0 / N

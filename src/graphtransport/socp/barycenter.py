@@ -7,7 +7,7 @@ import numpy as np
 from graphtransport.api import GeodesicSolution
 from graphtransport.graph import MarkovGraph
 from graphtransport.socp.geodesic import _check_steps, _value, endpoint_potentials, geodesic_block
-from graphtransport.solvers import solve_conic
+from graphtransport.solvers import import_cvxpy, solve_conic
 
 
 def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, check: bool = True,
@@ -31,7 +31,7 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
     References with lam_i == 0 are dropped rather than solved with zero
     weight. ``lam`` must be a probability vector.
     """
-    import cvxpy as cp
+    cp = import_cvxpy()
 
     lam = np.asarray(lam, dtype=float)
     if len(refs) != len(lam):

@@ -108,7 +108,7 @@ def test_unified_api_matches_julia():
     assert sol.rho.shape == (9, 5)
     assert sol.W2 == pytest.approx(JULIA_API_GEO_W2, rel=1e-12)
     np.testing.assert_allclose(sol.rho[:, 2], JULIA_API_GEO_RHO_MID, rtol=1e-12)
-    assert transport_cost(G, refs[0], refs[1], cost=cost, epsilon=0.1, N=4, iters=256) == pytest.approx(
+    assert transport_cost(G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1, N=4, iters=256) == pytest.approx(
         JULIA_API_TRANSPORT_COST, rel=1e-12
     )
 
