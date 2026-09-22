@@ -58,10 +58,13 @@ class MarkovGraph:
         if pi.shape[0] != n:
             raise ValueError(f"pi has length {pi.shape[0]}, expected {n}")
 
-        Qcoo = Q.tocoo()
+        # Edge order matches Julia's findnz on a SparseMatrixCSC: column-major,
+        # i.e. by target node then source, so per-edge quantities (kappa, m,
+        # theta) line up with the Julia package's without a permutation.
+        Qcoo = Q.tocsc().tocoo()
         edges: list[tuple[int, int]] = []
         kappas: list[float] = []
-        for i, j, q_ij in zip(Qcoo.row, Qcoo.col, Qcoo.data):
+        for i, j, q_ij in sorted(zip(Qcoo.row, Qcoo.col, Qcoo.data), key=lambda t: (t[1], t[0])):
             if i >= j:
                 continue
             q_ji = Q[j, i]

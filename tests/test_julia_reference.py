@@ -27,6 +27,7 @@ from julia_values import (
     JULIA_API_GEO_RHO_MID,
     JULIA_API_TRANSPORT_COST,
     JULIA_API_ANALYSIS_LAMBDA,
+    JULIA_SOCP,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
@@ -122,3 +123,42 @@ def test_simplex_regression_matches_julia_to_optimizer_tolerance():
     mu = _mu(G)
     lam_hat = simplex_regression(mu, np.array(JULIA_BARYCENTER_EPS01_ITERS256), cost, 0.1, iters=256)
     np.testing.assert_allclose(lam_hat, JULIA_SIMPLEX_REGRESSION_LAMBDA, atol=1e-5)
+
+
+def test_geodesic_socp_matches_julia():
+    # tests/julia_reference/socp_reference.jl: geodesic_socp(G, refs[1], refs[2]; N=4)
+    # for each conic-representable mean. Agreement is to the solvers' tolerance
+    # (Clarabel through JuMP there, through cvxpy here), not round-off; the
+    # potentials agree absolutely, not merely up to an additive constant.
+    # This is also what pins the edge order to Julia's findnz: m0 is compared
+    # entry by entry, so a permuted E would fail here.
+    pytest.importorskip("cvxpy")
+    from graphtransport import ArithmeticMean, GeometricMean, HarmonicMean, QuadLogMean
+    from graphtransport.socp import geodesic_socp
+
+    G = _grid3()
+    mu = _mu(G)
+    refs = [mu[:, s] / G.pi for s in range(3)]
+    means = {
+        "GeometricMean": GeometricMean(),
+        "ArithmeticMean": ArithmeticMean(),
+        "HarmonicMean": HarmonicMean(),
+        "QuadLogMean(6)": QuadLogMean(6),
+    }
+    for name, mean in means.items():
+        ref = JULIA_SOCP[name]
+        sol = geodesic_socp(G.with_mean(mean), refs[0], refs[1], N=4)
+        assert sol.W2 == pytest.approx(ref["W2"], rel=1e-5), name
+
+        def close(got, want, tol, what):
+            # tolerances relative to each quantity's own scale: m0 is O(30) and
+            # the potentials O(10), so a fixed atol would mean different things
+            want = np.asarray(want, dtype=float)
+            np.testing.assert_allclose(
+                got, want, atol=tol * max(1.0, np.abs(want).max()), err_msg=f"{name} {what}"
+            )
+
+        close(sol.rho[:, 2], ref["rho_mid"], 1e-4, "rho_mid")
+        close(sol.m0, ref["m0"], 1e-4, "m0")
+        close(sol.phi0, ref["phi0"], 1e-3, "phi0")
+        close(sol.phi1, ref["phi1"], 1e-3, "phi1")
