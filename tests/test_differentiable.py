@@ -119,6 +119,25 @@ def test_a_non_cpu_tensor_is_rejected(grid4):
         transport_cost(grid4, torch.tensor(a, device="meta"), torch.tensor(b))
 
 
+def test_transport_cost_has_zero_gradient_where_the_endpoints_coincide(grid4):
+    # sqrt's derivative at 0 is infinite, and inf * 0 would give nan; zero is
+    # the subgradient at W's minimum, as torch.linalg.norm uses
+    a, _ = _pair(grid4, 17)
+    x = torch.tensor(a, requires_grad=True)
+    W = transport_cost(grid4, x, torch.tensor(a))
+    W.backward()
+    assert W.item() == 0.0
+    assert torch.equal(x.grad, torch.zeros_like(x))
+
+
+def test_second_order_gradients_raise_rather_than_return_wrong_values(grid4):
+    a, b = _pair(grid4, 18)
+    x = torch.tensor(a, requires_grad=True)
+    (g,) = torch.autograd.grad(transport_cost(grid4, x, torch.tensor(b)), x, create_graph=True)
+    with pytest.raises(RuntimeError, match="once_differentiable"):
+        g.sum().backward()
+
+
 # ----- policies -----
 
 

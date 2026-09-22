@@ -595,7 +595,9 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     for the discrete solve (shooting.differentiable). The other methods are
     not differentiable: they raise if an input requires grad, and otherwise
     return tensors with no graph. Shooting's fallback to the SOCP is disabled
-    when an input requires grad; shooting raises instead.
+    when an input requires grad; shooting raises instead. Gradients are first
+    order only: differentiating a gradient again (create_graph=True, for a
+    gradient penalty or a Hessian-vector product) raises.
     """
     _check_method(method, GEODESIC_METHODS, "geodesic")
     _check_kwargs(method, kwargs, "geodesic")
@@ -614,23 +616,31 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     path, and warns if that plan has not converged (there is no status to
     return).
 
-    Takes torch tensors as geodesic does, returning a 0-d tensor. Its
-    gradient is undefined where W = 0 (rhoA == rhoB), as the square root's
-    is; differentiate geodesic(...).W2 there."""
+    Takes torch tensors as geodesic does, returning a 0-d tensor. W is not
+    differentiable where W = 0 (rhoA == rhoB); its gradient there is 0, the
+    subgradient at W's minimum and torch.linalg.norm's convention, rather than
+    the nan the square root's infinite derivative would give. Gradients are
+    first order only (see geodesic)."""
     _check_method(method, GEODESIC_METHODS, "transport_cost")
     _check_kwargs(method, kwargs, "transport_cost")
     if _is_torch(rhoA, rhoB):
-        return torch_sqrt(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
+        return _sqrt_zero_subgradient(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
     if method in TRANSPORT_COST_METHODS:
         rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
         return float(np.sqrt(TRANSPORT_COST_METHODS[method](G, rhoA, rhoB, **kwargs)))
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
 
 
-def torch_sqrt(W2):
+def _sqrt_zero_subgradient(W2):
+    """sqrt(W2) with gradient 0 where W2 == 0, torch.linalg.norm's convention:
+    sqrt's own derivative there is infinite, and inf * 0 gives a nan that
+    would poison a training loop whose prediction matches its target. Zero is
+    also the right subgradient: W >= 0 is smallest at rhoA == rhoB. The inner
+    sqrt sees a harmless 1 where W2 == 0, so its gradient never forms."""
     import torch
 
-    return torch.sqrt(W2)
+    positive = W2 > 0
+    return torch.where(positive, torch.sqrt(torch.where(positive, W2, torch.ones_like(W2))), torch.zeros_like(W2))
 
 
 def _reject_torch(what: str, *values) -> None:

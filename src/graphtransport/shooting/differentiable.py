@@ -21,6 +21,12 @@ returned values.
 Inputs are normalised by their pi-mass inside the graph, so a gradient is
 defined in every direction and the derivative along a pure rescaling of a
 density is zero. Tensors are float64 on the CPU.
+
+Gradients are first order only. The backward solves with numpy and is marked
+once_differentiable, so differentiating a gradient again -- create_graph=True,
+for a gradient penalty or a Hessian-vector product -- raises torch's
+"trying to differentiate twice a function that was marked with
+@once_differentiable", where the function is _LogMapPotential.
 """
 
 from __future__ import annotations
@@ -117,7 +123,8 @@ def transport_cost_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torc
                                   tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6,
                                   verbose: bool = False, phi0_init=None) -> torch.Tensor:
     """W2 between rhoA and rhoB (densities w.r.t. G.pi, float64 tensors) by
-    shooting, as a differentiable 0-d tensor."""  # fmt: skip
+    shooting, as a 0-d tensor differentiable to first order (see the module
+    docstring)."""  # fmt: skip
     a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init)
     return 2 * _torch_hamiltonian(G, a, phi0)
 
@@ -127,8 +134,8 @@ def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tens
                             phi0_init=None):
     """The shooting geodesic as a GeodesicSolution of differentiable tensors:
     W2, the density and potential paths, the momenta and the endpoint
-    potentials all carry gradients back to rhoA and rhoB. Same conventions
-    as geodesic_shooting."""  # fmt: skip
+    potentials all carry gradients back to rhoA and rhoB, to first order (see
+    the module docstring). Same conventions as geodesic_shooting."""  # fmt: skip
     from graphtransport.api import GeodesicSolution
 
     t0 = time.perf_counter()

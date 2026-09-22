@@ -65,9 +65,13 @@ gt.transport_cost(G, rhoA, rhoB).backward()   # logits.grad is d W / d logits
 The gradients are exact for the discrete problem the solver solves, obtained
 by the implicit function theorem rather than by differentiating through
 Newton's iterations, so they agree with finite differences of the returned
-values. The SOCP and Sinkhorn methods are not differentiable here: with inputs
-that require grad they raise, and so does shooting where it would otherwise
-fall back to the SOCP. `barycenter` and `analysis` do not take tensors yet.
+values. They are first order only: differentiating a gradient again
+(`create_graph=True`, for a gradient penalty or a Hessian-vector product)
+raises. Where `rhoA == rhoB`, `transport_cost`'s gradient is 0, the
+subgradient at its minimum (as for `torch.linalg.norm`). The SOCP and Sinkhorn
+methods are not differentiable here: with inputs that require grad they
+raise, and so does shooting where it would otherwise fall back to the SOCP.
+`barycenter` and `analysis` do not take tensors yet.
 
 ### Installing
 
