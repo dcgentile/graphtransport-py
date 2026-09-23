@@ -16,12 +16,10 @@ natural next step if larger graphs are needed.
 The Jacobian is exact, as in the Julia original, which differentiates the
 flow map with ForwardDiff: here the torch flow's tangent-linear model
 (shooting.hamiltonian) is carried along the step schedule the shot took --
-forward-mode differentiation, with the n - 1 tangents in one batch.
-An earlier forward-difference Jacobian was accurate to ~1e-7 near the
-initial guess but not along the Newton path of a long transport, where the
-flow map bends sharply: on a 10x10 grid, two corner bumps, its error grew
-from 4e-7 to 2e-3 by the sixth iteration, the Newton direction turned by a
-degree, and the line search failed where Julia converges in 19 iterations.
+forward-mode differentiation, with the n - 1 tangents in one batch. It has
+to be exact: a finite-difference Jacobian loses accuracy along the Newton path
+of a long transport, where the flow map bends sharply, and Newton then stalls
+where the exact Jacobian converges.
 """
 
 from __future__ import annotations
@@ -50,12 +48,20 @@ from graphtransport.shooting.hamiltonian import (
 
 logger = logging.getLogger(__name__)
 
+
 class ShootingError(RuntimeError):
     """log_map could not solve the shooting problem: Newton did not converge,
     the line search failed, or no admissible initial potential was found.
 
     log_map_mollified catches this (and PositivityFloorError) to skip a
-    mollification level; nothing broader."""
+    mollification level; nothing broader.
+
+    The API sets ``summary`` (a one-line description for the fallback
+    warning) and ``retry_hint`` (the keyword that may let shooting solve it
+    exactly) when it re-raises a failure with context."""
+
+    summary: str | None = None
+    retry_hint: str | None = None
 
 
 @dataclass
@@ -156,7 +162,7 @@ def solve_weighted_laplacian(G: MarkovGraph, nu, b) -> np.ndarray:
     b must be orthogonal to the constants (sum(b) == 0), as every right-hand
     side arising here is: pi * (target - nu) for two probability densities,
     or grad^T(kappa m) for any momentum. Implemented as the rank-one
-    regularisation (L + pi pi^T) phi = b, which for such b has the same
+    regularization (L + pi pi^T) phi = b, which for such b has the same
     solution and enforces the gauge by itself (summing both sides gives
     (1^T pi)(pi^T phi) = 0).
     """
@@ -194,8 +200,9 @@ def _gauge(G: MarkovGraph, phi: np.ndarray) -> np.ndarray:
     return phi - (phi @ G.pi) / G.pi.sum()
 
 
-def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, kind: str = "auto",
-            floor_rtol: float = 1e-6) -> np.ndarray:
+def exp_map(
+    G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, kind: str = "auto", floor_rtol: float = 1e-6
+) -> np.ndarray:
     """The Riemannian exponential map at ``nu``: integrate the Hamiltonian flow
     from (nu, phi0) for time ``t`` and return the endpoint density.
 
@@ -206,7 +213,7 @@ def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, k
 
     Raises PositivityFloorError rather than returning garbage if the flow hits
     the positivity floor before time ``t``.
-    """  # fmt: skip
+    """
     n, n_edges = G.n, G.E.shape[0]
     # Checked first: the momentum branch solves a Laplacian at nu, and a
     # boundary nu there surfaces as "the graph is disconnected".
@@ -215,7 +222,9 @@ def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, k
     if kind == "auto":
         length = tangent.shape[0] if tangent.ndim == 1 else -1
         if length not in (n, n_edges):
-            raise ValueError(f"tangent has shape {tangent.shape}; expected ({n},) (potential) or ({n_edges},) (momentum)")
+            raise ValueError(
+                f"tangent has shape {tangent.shape}; expected ({n},) (potential) or ({n_edges},) (momentum)"
+            )
         if n == n_edges:
             raise ValueError(
                 f"n == |E| == {n}, so the kind of the tangent cannot be inferred from its length; "
@@ -268,8 +277,9 @@ def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndar
     return d_rho1[: n - 1].numpy()
 
 
-def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose,
-                      give_up_early=False):
+def _log_map_multiple(
+    G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose, give_up_early=False
+):
     """log_map by multiple shooting (shooting.multiple). A phi0_init is used
     as a warm start by sweeping the flow from it once and taking the states at
     the segment starts; if that sweep hits the floor, the default start is used."""
@@ -283,9 +293,19 @@ def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val
         if not np.all(np.isfinite(phi0)):
             raise ValueError("phi0_init has non-finite entries")
         init = initial_states_from_potential(G, nu, _gauge(G, phi0), segments, nsteps, floor_val)
-    rho_s, phi_s, iters, r = solve_multiple_shooting(G, nu, target, segments=segments, nsteps=nsteps, tol=tol,
-                                                     maxiters=maxiters, floor_val=floor_val, verbose=verbose,
-                                                     init=init, give_up_early=give_up_early)  # fmt: skip
+    rho_s, phi_s, iters, r = solve_multiple_shooting(
+        G,
+        nu,
+        target,
+        segments=segments,
+        nsteps=nsteps,
+        tol=tol,
+        maxiters=maxiters,
+        floor_val=floor_val,
+        verbose=verbose,
+        init=init,
+        give_up_early=give_up_early,
+    )
     phi0 = phi_s[:, 0]
     m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r, (rho_s, phi_s))
@@ -293,17 +313,28 @@ def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val
 
 # segments="auto": after single shooting's first Newton step, switch to
 # multiple shooting with _AUTO_SEGMENTS segments if the line search had to cut
-# that step to _AUTO_SWITCH_STEP or less. Measured on n x n grids (5-12):
-# short transports (near-uniform densities) take full first steps, alpha = 1;
-# medium ones (a corner bump to the centre) 0.125-0.5; long ones (corner to
-# corner) 0.0625-0.125. K=8 was fastest on the long ones (32 s against 71 s
-# on 256 nodes), and on short ones every K > 1 was slower.
+# that step to _AUTO_SWITCH_STEP or less. On grid transports the first step
+# separates the cases: short ones (near-uniform densities) take full steps,
+# long ones (corner to corner) steps of 1/8 or less. K=8 was the fastest fixed
+# K on long transports, and every K > 1 was slower on short ones (the timings
+# are in the documentation's "Choosing a method").
 _AUTO_SWITCH_STEP = 0.25
 _AUTO_SEGMENTS = 8
 
 
-def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
-            nsteps: int = 150, floor_rtol: float = 1e-6, segments="auto", verbose: bool = False) -> LogMapResult:
+def log_map(
+    G: MarkovGraph,
+    nu,
+    target,
+    *,
+    phi0_init=None,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    nsteps: int = 150,
+    floor_rtol: float = 1e-6,
+    segments: int | str = "auto",
+    verbose: bool = False,
+) -> LogMapResult:
     """The Riemannian logarithm of ``target`` at ``nu``, by single or multiple
     shooting.
 
@@ -314,7 +345,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     by backtracking on ||F||_pi, and a step whose trajectory hits the
     positivity floor counts as a failed step and is shortened.
 
-    Initialisation is the linearised geodesic L(nu) phi0 = pi * (target - nu),
+    Initialization is the linearized geodesic L(nu) phi0 = pi * (target - nu),
     exact to first order in target - nu, or ``phi0_init`` if given -- the
     warm-start mechanism: callers keep their own phi0 from a nearby solve. If
     the first-order guess overshoots through the positivity floor, as it does
@@ -345,7 +376,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     ``tol`` after ``maxiters`` steps, the line search fails, or no admissible
     initial potential exists; the SOCP is the fallback in every case, or
     log_map_mollified for data near the boundary.
-    """  # fmt: skip
+    """
     if not np.isfinite(tol) or tol <= 0:
         raise ValueError(f"tol must be positive and finite, got {tol!r}")
     if isinstance(maxiters, bool) or not isinstance(maxiters, (int, np.integer)) or maxiters < 0:
@@ -353,9 +384,11 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     auto = isinstance(segments, str) and segments == "auto"
-    if not auto and (isinstance(segments, bool) or not isinstance(segments, (int, np.integer))
-                     or not 1 <= segments <= nsteps):  # fmt: skip
+    if not auto and (
+        isinstance(segments, bool) or not isinstance(segments, (int, np.integer)) or not 1 <= int(segments) <= nsteps
+    ):
         raise ValueError(f"segments must be 'auto' or an integer between 1 and nsteps ({nsteps}), got {segments!r}")
+    fixed_segments = None if auto else int(segments)
     floor_val = rho_floor(G, rtol=floor_rtol)
     nu = _check_interior(G, nu, floor_val, "nu")
     target = _check_interior(G, target, floor_val, "target")
@@ -365,14 +398,15 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     # component of the residual that Newton cannot reduce. _check_mass admits
     # gaps up to 1e-8 -- the output of an iterative solver, a barycenter from
     # the SOCP say, is typically off by ~1e-9 -- which would make a tol below
-    # the gap unreachable. Renormalising removes that floor at the cost of a
+    # the gap unreachable. Renormalizing removes that floor at the cost of a
     # perturbation of the same, negligible, size.
     nu = nu / (nu @ G.pi)
     target = target / (target @ G.pi)
 
-    if not auto and segments > 1:
-        return _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol,
-                                 int(segments), verbose)  # fmt: skip
+    if fixed_segments is not None and fixed_segments > 1:
+        return _log_map_multiple(
+            G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, fixed_segments, verbose
+        )
 
     n = G.n
     sqrt_pi = np.sqrt(G.pi)
@@ -400,7 +434,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
     # The first-order guess can overshoot through the floor for far-apart
     # endpoints; damp it until the first shot survives.
-    F = None
+    F, schedule = None, []
     for _ in range(13):
         try:
             F, schedule = shoot(z)
@@ -431,7 +465,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
             try:
                 F_try, schedule_try = shoot(z_try)
             except PositivityFloorError:
-                F_try = None
+                F_try, schedule_try = None, []
             if F_try is not None and resnorm(F_try) <= (1 - 1e-4 * alpha) * r:
                 z, F, schedule, r = z_try, F_try, schedule_try, resnorm(F_try)
                 accepted = True
@@ -457,8 +491,20 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
                 # heavily damped step the single trajectory ends far from the target, and
                 # its junction states started K=8 about 40% more Newton steps from the
                 # target (12x12 corner bumps: 10 against 7).
-                result = _log_map_multiple(G, nu, target, None, tol, maxiters - iters, nsteps, floor_val, floor_rtol, K,
-                                           verbose, give_up_early=True)  # fmt: skip
+                result = _log_map_multiple(
+                    G,
+                    nu,
+                    target,
+                    None,
+                    tol,
+                    maxiters - iters,
+                    nsteps,
+                    floor_val,
+                    floor_rtol,
+                    K,
+                    verbose,
+                    give_up_early=True,
+                )
             except ShootingError:
                 # multiple shooting could not take it (or was stalling, and gave up early);
                 # single shooting carries on from its first step
@@ -473,10 +519,22 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r)
 
 
-def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                     segments="auto", phi0_inits=None, compute_condition: bool = False,
-                     return_system: bool = False, qp_method: str = "auto", qp_solver=None,
-                     floor_rtol: float = 1e-6):
+def analyze_shooting(
+    G: MarkovGraph,
+    target,
+    refs,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    segments="auto",
+    phi0_inits=None,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    qp_method: str = "auto",
+    qp_solver=None,
+    floor_rtol: float = 1e-6,
+):
     """The shooting analysis backend: like analyze_socp, but each reference's
     potential is log_map(G, target, ref).phi0 -- the Hamiltonian velocity
     potential at ``target`` -- instead of the SOCP's endpoint dual. The Gram
@@ -488,12 +546,12 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     multiple shooting for each (see log_map; default "auto"); ``phi0_inits``, if given, holds one warm-start
     potential per reference.
 
-    This checks stationarity in the Hamiltonian flow's discretisation, which
-    differs from barycenter_socp's, so a barycenter synthesised by the SOCP is
+    This checks stationarity in the Hamiltonian flow's discretization, which
+    differs from barycenter_socp's, so a barycenter synthesized by the SOCP is
     recovered only to O(h) in the SOCP's time step, not to solver tolerance.
 
     Returns lam_hat, or (lam_hat, A) with return_system=True.
-    """  # fmt: skip
+    """
     from graphtransport.gram import potential_gram_qp
 
     if isinstance(refs, np.ndarray) and refs.ndim != 1:
@@ -508,18 +566,33 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     if phi0_inits is not None and len(phi0_inits) != len(refs):
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
     potentials = [
-        log_map(G, target, ref, nsteps=nsteps, tol=tol, maxiters=maxiters, floor_rtol=floor_rtol,
-                segments=segments, phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
+        log_map(
+            G,
+            target,
+            ref,
+            nsteps=nsteps,
+            tol=tol,
+            maxiters=maxiters,
+            floor_rtol=floor_rtol,
+            segments=segments,
+            phi0_init=None if phi0_inits is None else phi0_inits[i],
+        ).phi0
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(
-        G, target, potentials, compute_condition=compute_condition, return_system=return_system,
-        method=qp_method, solver=qp_solver,
-    )  # fmt: skip
+        G,
+        target,
+        potentials,
+        compute_condition=compute_condition,
+        return_system=return_system,
+        method=qp_method,
+        solver=qp_solver,
+    )
 
 
-def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4), tol: float = 1e-7,
-                      **kwargs) -> MollifiedLogMapResult:
+def log_map_mollified(
+    G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4), tol: float = 1e-7, **kwargs
+) -> MollifiedLogMapResult:
     """log_map for endpoints with zero or near-zero entries, where shooting
     cannot run directly.
 
@@ -537,7 +610,7 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
     often *more* accurate than the extrapolation: the mollification error
     decays faster than sqrt(eps). Both are returned so they can be compared.
     ``tol`` defaults to a looser 1e-7; the rest of ``kwargs`` go to log_map.
-    """  # fmt: skip
+    """
     levels = sorted((float(e) for e in epsilons), reverse=True)
     if len(set(levels)) < 2:
         # Coincident levels make the fit rank-deficient, and lstsq answers that
@@ -559,21 +632,24 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
     for eps in levels:
         try:
             level = log_map(
-                G, mollify(nu, eps), mollify(target, eps),
-                phi0_init=None if result is None else result.phi0, tol=tol, **kwargs,
-            )  # fmt: skip
+                G,
+                mollify(nu, eps),
+                mollify(target, eps),
+                phi0_init=None if result is None else result.phi0,
+                tol=tol,
+                **kwargs,
+            )
         except (ShootingError, PositivityFloorError) as exc:
-            warnings.warn(f"log_map_mollified: shooting failed at epsilon={eps:g}, skipping this level ({exc})",
-                          stacklevel=2)
+            warnings.warn(
+                f"log_map_mollified: shooting failed at epsilon={eps:g}, skipping this level ({exc})", stacklevel=2
+            )
             continue
         result = level
         Ws.append(np.sqrt(level.W2))
         used.append(eps)
-    if len(used) < 2:  # levels are distinct, so the fit below has full rank
+    if len(used) < 2 or result is None:  # levels are distinct, so the fit below has full rank
         raise ShootingError("log_map_mollified: fewer than two epsilon levels solved; fall back to method='socp'")
 
     X = np.column_stack([np.ones(len(used)), np.sqrt(used)])
     W0, a = np.linalg.lstsq(X, np.array(Ws), rcond=None)[0]
-    return MollifiedLogMapResult(
-        W0**2, W0, result.phi0, result.m0, (W0, a), np.array(used), np.array(Ws)
-    )
+    return MollifiedLogMapResult(W0**2, W0, result.phi0, result.m0, (W0, a), np.array(used), np.array(Ws))

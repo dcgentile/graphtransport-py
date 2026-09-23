@@ -24,8 +24,11 @@ def test_optimal_is_accepted():
 def test_optimal_inaccurate_is_rejected_with_its_own_reason():
     # the Julia package accepts ALMOST_OPTIMAL; such an iterate was observed
     # with its objective 35% above the optimum
-    with pytest.raises(RuntimeError, match=r"status 'optimal_inaccurate' \(not optimal\): reached only reduced "
-                                           r"accuracy.*A different N.*try this"):
+    with pytest.raises(
+        RuntimeError,
+        match=r"status 'optimal_inaccurate' \(not optimal\): reached only reduced "
+        r"accuracy.*A different N.*try this",
+    ):
         solve_conic(_StubProblem(cp.OPTIMAL_INACCURATE), "CLARABEL", "stub", hint="try this")
 
 

@@ -33,7 +33,22 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e ".[dev,torch,jax,socp]"
+      - run: pip install -e ".[dev,jax,socp]"
       - run: pytest -q -rs -m "" | tee all-extras.log
         shell: bash  # explicit bash runs with pipefail, so a pytest failure is not hidden by tee
       - run: "! grep -q SKIPPED all-extras.log"
+
+  # Pinned so a new ruff or pyright release cannot fail a PR that changed nothing.
+  # pyright resolves imports against the installed extras, hence the full install.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,jax,socp]" ruff==0.16.8 pyright==1.1.382
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pyright

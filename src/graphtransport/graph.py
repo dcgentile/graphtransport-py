@@ -21,7 +21,9 @@ from graphtransport.means import AdmissibleMean, GeometricMean
 
 def _check_mean(mean) -> AdmissibleMean:
     if not isinstance(mean, AdmissibleMean):
-        hint = f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        hint = (
+            f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        )
         raise TypeError(f"mean must be an AdmissibleMean instance, got {mean!r}{hint}")
     return mean
 
@@ -45,16 +47,17 @@ class MarkovGraph:
             like the graph itself, so it lives here rather than as a per-call
             option: every geodesic, barycenter and analysis computed from the
             same MarkovGraph uses the same metric, and a target synthesized on
-            one graph is analysed with the mean it was made with.
+            one graph is analyzed with the mean it was made with.
     """
 
     def __init__(self, Q, pi, *, rtol: float = 1e-12, mean: AdmissibleMean | None = None):
         self.mean: AdmissibleMean = GeometricMean() if mean is None else _check_mean(mean)
-        Q = sparse.csr_matrix(np.asarray(Q, dtype=float))
+        Q_dense = np.asarray(Q, dtype=float)
         pi = np.asarray(pi, dtype=float)
-        n = Q.shape[0]
-        if Q.shape[1] != n:
-            raise ValueError(f"Q must be square, got shape {Q.shape}")
+        if Q_dense.ndim != 2 or Q_dense.shape[0] != Q_dense.shape[1]:
+            raise ValueError(f"Q must be square, got shape {Q_dense.shape}")
+        n = Q_dense.shape[0]
+        Q = sparse.csr_matrix(Q_dense)
         if pi.shape[0] != n:
             raise ValueError(f"pi has length {pi.shape[0]}, expected {n}")
 
@@ -64,7 +67,7 @@ class MarkovGraph:
         Qcoo = Q.tocsc().tocoo()
         edges: list[tuple[int, int]] = []
         kappas: list[float] = []
-        for i, j, q_ij in sorted(zip(Qcoo.row, Qcoo.col, Qcoo.data), key=lambda t: (t[1], t[0])):
+        for i, j, q_ij in sorted(zip(Qcoo.row, Qcoo.col, Qcoo.data, strict=True), key=lambda t: (t[1], t[0])):
             if i >= j:
                 continue
             q_ji = Q[j, i]
@@ -73,8 +76,7 @@ class MarkovGraph:
             scale = max(abs(kappa_ij), abs(kappa_ji), 1e-300)
             if abs(kappa_ij - kappa_ji) / scale > rtol:
                 raise ValueError(
-                    f"reversibility violated on edge ({i},{j}): "
-                    f"Q[i,j]*pi[i]={kappa_ij}, Q[j,i]*pi[j]={kappa_ji}"
+                    f"reversibility violated on edge ({i},{j}): Q[i,j]*pi[i]={kappa_ij}, Q[j,i]*pi[j]={kappa_ji}"
                 )
             edges.append((i, j))
             kappas.append(kappa_ij)
@@ -94,7 +96,7 @@ class MarkovGraph:
             D_rows[2 * e + 1], D_cols[2 * e + 1], D_vals[2 * e + 1] = y, e, Q[y, x]
         self.D = sparse.csr_matrix((D_vals, (D_rows, D_cols)), shape=(n, num_edges))
 
-    def with_mean(self, mean: AdmissibleMean) -> "MarkovGraph":
+    def with_mean(self, mean: AdmissibleMean) -> MarkovGraph:
         """The same graph with a different mean; shares the cached matrices."""
         other = object.__new__(type(self))
         other.__dict__.update(self.__dict__)

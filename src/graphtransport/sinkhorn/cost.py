@@ -67,7 +67,7 @@ def ground_cost(
     e_x - e_y lies in the left kernel of P^t; that need not happen (the plain
     walk on the 3x3 grid has a 3-dimensional kernel and still separates every
     pair), but when it does D_t is only a pseudo-metric. For the plain walk this is common: two nodes with
-    the same neighbourhood (the ends of a 3-path, opposite corners of a
+    the same neighborhood (the ends of a 3-path, opposite corners of a
     4-cycle, the leaves of a star) have identical rows of Q, hence zero cost
     for every t >= 1, and a Sinkhorn barycenter moves mass between them for
     free. The default laziness 1/2 maps each eigenvalue lambda of Q to

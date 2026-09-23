@@ -27,11 +27,11 @@ from __future__ import annotations
 
 try:
     import jax
+    import jax.core
     import jax.numpy as jnp
 except ImportError as exc:  # pragma: no cover - exercised only without jax
     raise ImportError(
-        "graphtransport.sinkhorn.backends.jax_backend requires JAX; "
-        "install it with `pip install 'graphtransport[jax]'`"
+        "graphtransport.sinkhorn.backends.jax_backend requires JAX; install it with `pip install 'graphtransport[jax]'`"
     ) from exc
 
 from graphtransport.sinkhorn.core import _check_epsilon, _check_problem, _underflow_error
@@ -59,7 +59,7 @@ def regularize_cost(cost, epsilon):
 def sinkhorn_barycenter(coords, measures, cost, epsilon, *, iters: int = 256):
     """Entropic Wasserstein barycenter of the columns of ``measures`` (shape
     (n, S), probability vectors) with weights ``coords`` (length S) for the
-    ground ``cost`` and regularisation ``epsilon``; differentiable in
+    ground ``cost`` and regularization ``epsilon``; differentiable in
     ``coords``, ``measures`` and ``cost``.
 
     Inputs may be arrays or array-likes; they are promoted to the dtype of

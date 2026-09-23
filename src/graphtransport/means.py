@@ -2,7 +2,7 @@
 
 Ported from GraphTransportation.jl's core/Means.jl. An admissible mean
 theta(s, t) is continuous, symmetric, positively 1-homogeneous, concave,
-positive on (0, inf)^2 and normalised so theta(s, s) = s (Maas 2011). The
+positive on (0, inf)^2 and normalized so theta(s, s) = s (Maas 2011). The
 metric is ||grad phi||^2_rho = sum_e kappa_e theta(rho_x, rho_y) (grad phi)_e^2;
 concavity is what makes the action m^2/theta jointly convex.
 
@@ -301,7 +301,7 @@ class QuadLogMean(AdmissibleMean):
         if K < 1:
             raise ValueError("QuadLogMean needs K >= 1 nodes")
         # numpy's leggauss gives nodes on [-1, 1] with weights summing to 2;
-        # map to [0, 1] and normalise the weights to 1.
+        # map to [0, 1] and normalize the weights to 1.
         x, w = np.polynomial.legendre.leggauss(K)
         self.alpha = (x + 1) / 2
         self.w = w / w.sum()
@@ -330,14 +330,18 @@ class QuadLogMean(AdmissibleMean):
     def torch_partial_s_grad(self, s, t):
         a, w = self._torch_nodes(s)
         s_, t_ = s[..., None], t[..., None]
-        return ((w * a * (a - 1) * s_ ** (a - 2) * t_ ** (1 - a)).sum(dim=-1),
-                (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1))  # fmt: skip
+        return (
+            (w * a * (a - 1) * s_ ** (a - 2) * t_ ** (1 - a)).sum(dim=-1),
+            (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1),
+        )
 
     def _torch_nodes(self, like):
         import torch
 
-        return (torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
-                torch.as_tensor(self.w, dtype=like.dtype, device=like.device))  # fmt: skip
+        return (
+            torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
+            torch.as_tensor(self.w, dtype=like.dtype, device=like.device),
+        )
 
     def __repr__(self) -> str:
         return f"QuadLogMean({self.K})"

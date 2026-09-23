@@ -37,12 +37,12 @@ def simplex_qp(A, *, method: str = "auto", solver=None) -> np.ndarray:
     cvxpy when installed, otherwise scipy. Both agree to the conic solver's
     tolerance (~1e-8).
 
-    The minimiser is invariant under A -> c A (c > 0), so A is divided by its
+    The minimizer is invariant under A -> c A (c > 0), so A is divided by its
     largest entry first: a conic solver stops on absolute tolerances, and a
     Gram matrix of nearby measures (entries ~ W^2, possibly 1e-8 or less)
     would otherwise be "solved" at its starting point, uniform weights. A zero
     A makes every lam optimal and returns uniform weights. The result is
-    projected onto the simplex (clip at 0, renormalise) to remove solver
+    projected onto the simplex (clip at 0, renormalize) to remove solver
     round-off. Raises if A is not square, not finite, or not PSD.
     """
     if method not in QP_METHODS:
@@ -77,7 +77,8 @@ def _simplex_qp_cvxpy(A, solver) -> np.ndarray:
     x = cp.Variable(p)
     # psd_wrap skips cvxpy's own PSD check, which round-off negative
     # eigenvalues of a Gram matrix would fail; simplex_qp checked A above.
-    problem = cp.Problem(cp.Minimize(cp.quad_form(x, cp.psd_wrap(A))), [x >= 0, cp.sum(x) == 1])
+    constraints: list = [x >= 0, cp.sum(x) == 1]  # cvxpy's stubs type x >= 0 as possibly bool
+    problem = cp.Problem(cp.Minimize(cp.quad_form(x, cp.psd_wrap(A))), constraints)
     solve_conic(problem, solver, "simplex_qp", hint="Try method='scipy'.")
     return np.asarray(x.value, dtype=float).reshape(p)
 
@@ -100,8 +101,15 @@ def _simplex_qp_scipy(A) -> np.ndarray:
     return result.x
 
 
-def solve_barycentric_coordinates_qp(tangent_vectors, g, *, compute_condition: bool = False,
-                                     return_system: bool = False, method: str = "auto", solver=None):
+def solve_barycentric_coordinates_qp(
+    tangent_vectors,
+    g,
+    *,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    method: str = "auto",
+    solver=None,
+):
     """Gram-matrix assembly and simplex-QP solve shared by every analysis
     backend: given the initial tangent vectors of the geodesics from a target
     to each reference and the target's metric tensor g, assemble
@@ -129,8 +137,16 @@ def _describe_condition(A) -> str:
     return f"Estimated condition number of analysis matrix: {e[-1] / e[0]}"
 
 
-def potential_gram_qp(G: MarkovGraph, target, potentials, *, compute_condition: bool = False,
-                      return_system: bool = False, method: str = "auto", solver=None):
+def potential_gram_qp(
+    G: MarkovGraph,
+    target,
+    potentials,
+    *,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    method: str = "auto",
+    solver=None,
+):
     """Gram matrix and simplex QP for potential-based backends: given one
     potential phi_i per reference (the geodesic from target to ref_i, in any
     sign/scale convention common to all i), assemble the Riemannian Gram
@@ -140,6 +156,10 @@ def potential_gram_qp(G: MarkovGraph, target, potentials, *, compute_condition: 
     tangent_vectors = [graph_gradient(G, phi) for phi in potentials]
     g = G.kappa * metric_tensor(G, target)
     return solve_barycentric_coordinates_qp(
-        tangent_vectors, g, compute_condition=compute_condition, return_system=return_system, method=method,
+        tangent_vectors,
+        g,
+        compute_condition=compute_condition,
+        return_system=return_system,
+        method=method,
         solver=solver,
     )

@@ -153,9 +153,7 @@ def test_log_map_against_the_socp(builder):
         prev = m_err
     # The SOCP's endpoint potential is the gradient of W2; the flow's phi0 is the
     # Hamiltonian velocity potential. In the continuum limit phi_socp = -2 phi0.
-    np.testing.assert_allclose(
-        graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05
-    )
+    np.testing.assert_allclose(graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05)
 
 
 def test_log_map_two_node_closed_form():
@@ -177,7 +175,7 @@ def test_log_map_damps_an_initial_guess_that_overshoots_the_floor():
         return m / (m @ G.pi)
 
     nu, mu = concentrated(0), concentrated(24)  # opposite corners
-    # Premise: the undamped linearised guess really does hit the floor here;
+    # Premise: the undamped linearized guess really does hit the floor here;
     # without it this test would stop exercising the damping loop silently.
     phi_lin = solve_weighted_laplacian(G, nu, G.pi * (mu - nu))
     with pytest.raises(PositivityFloorError):
@@ -278,8 +276,10 @@ def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
     exact = explog._shooting_jacobian(G, nu_t, z, schedule)
     h, eye = 1e-6, np.eye(n - 1)
     for j in range(n - 1):
-        (up, s_up), (down, s_down) = (explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
-                                      explog._shoot(G, nu_t, z - h * eye[j], 150, floor))  # fmt: skip
+        (up, s_up), (down, s_down) = (
+            explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
+            explog._shoot(G, nu_t, z - h * eye[j], 150, floor),
+        )
         assert s_up == schedule and s_down == schedule
         central = (up.numpy() - down.numpy())[: n - 1] / (2 * h)
         np.testing.assert_allclose(exact[:, j], central, atol=1e-7 * np.abs(exact).max())
@@ -289,7 +289,7 @@ def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
 
 
 def test_analyze_shooting_recovers_socp_synthesised_weights():
-    # The SOCP synthesises in a different discretisation, so expect O(h)
+    # The SOCP synthesizes in a different discretization, so expect O(h)
     # agreement, not solver tolerance. The genuinely O(h) quantity that
     # involves no QP is the true lam's Gram-form residual lam^T A lam: Julia
     # measured a factor of 100-300 between N=2 and N=10 and requires 10.
@@ -350,7 +350,9 @@ def test_log_map_mollified_approximates_the_socp_on_boundary_data():
     assert r.W2 == pytest.approx(r.W**2)
 
 
-@pytest.mark.parametrize("epsilons, match", [((1e-2,), "at least two"), ((0.5, 1.5), r"\(0, 1\)"), ((0.1, 0.0), r"\(0, 1\)")])
+@pytest.mark.parametrize(
+    "epsilons, match", [((1e-2,), "at least two"), ((0.5, 1.5), r"\(0, 1\)"), ((0.1, 0.0), r"\(0, 1\)")]
+)
 def test_log_map_mollified_rejects_bad_levels(epsilons, match):
     G = MarkovGraph(*triangle_markov_chain())
     with pytest.raises(ValueError, match=match):

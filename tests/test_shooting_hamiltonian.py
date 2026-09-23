@@ -67,9 +67,7 @@ def test_conservation_laws(builder):
         rho_path, phi_path = integrate_hamiltonian(G, rho0, phi0, nsteps=200)
 
         assert rho_path[:, -1] @ G.pi == pytest.approx(1.0, abs=1e-10)
-        drift = max(
-            abs(hamiltonian(G, rho_path[:, i], phi_path[:, i]) - H0) for i in range(rho_path.shape[1])
-        )
+        drift = max(abs(hamiltonian(G, rho_path[:, i], phi_path[:, i]) - H0) for i in range(rho_path.shape[1]))
         assert drift < 1e-4  # RK4 truncation error
 
 
@@ -207,9 +205,7 @@ def test_invalid_max_halvings(max_halvings):
     # A negative value would disable bisection with no symptom: the first
     # floor crossing raises instead of being retried.
     with pytest.raises(ValueError, match="max_halvings must be an integer >= 0"):
-        integrate_hamiltonian(
-            _two_node(), np.array([1.6, 0.4]), np.array([0.1, -0.1]), max_halvings=max_halvings
-        )
+        integrate_hamiltonian(_two_node(), np.array([1.6, 0.4]), np.array([0.1, -0.1]), max_halvings=max_halvings)
 
 
 def test_rho_floor_scales_with_the_stationary_distribution():
@@ -251,9 +247,7 @@ def test_invalid_initial_density(rho0, match):
         integrate_hamiltonian(_two_node(), rho0, np.array([0.1, -0.1]))
 
 
-@pytest.mark.parametrize(
-    "phi0, match", [(np.zeros(3), r"shape \(2,\)"), (np.array([np.nan, 0.0]), "non-finite")]
-)
+@pytest.mark.parametrize("phi0, match", [(np.zeros(3), r"shape \(2,\)"), (np.array([np.nan, 0.0]), "non-finite")])
 def test_invalid_initial_potential(phi0, match):
     with pytest.raises(ValueError, match=match):
         integrate_hamiltonian(_two_node(), np.array([1.6, 0.4]), phi0)

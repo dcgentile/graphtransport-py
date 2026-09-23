@@ -13,6 +13,7 @@ the finite-iteration barycenter loss with respect to the weights -- and
 from __future__ import annotations
 
 import warnings
+from typing import cast
 
 import numpy as np
 from scipy.optimize import minimize
@@ -38,8 +39,7 @@ def _check_problem(measures_shape, n: int, coords_shape, iters) -> None:
     measures_shape, coords_shape = tuple(measures_shape), tuple(coords_shape)
     if len(measures_shape) != 2 or measures_shape[0] != n:
         raise ValueError(
-            f"measures must have shape (n, S) with one column per measure and n = {n} nodes, "
-            f"got {measures_shape}"
+            f"measures must have shape (n, S) with one column per measure and n = {n} nodes, got {measures_shape}"
         )
     S = measures_shape[1]
     if coords_shape != (S,):
@@ -83,10 +83,10 @@ def _sinkhorn_forward(coords, measures, K, iters: int):
     phi = np.empty((n, S, iters))
     p = np.full(n, 1.0 / n)
     with np.errstate(divide="ignore", invalid="ignore"):
-        for l in range(1, iters):
-            phi[:, :, l] = K.T @ (measures / (K @ b[:, :, l - 1]))
-            p = np.exp(np.log(phi[:, :, l]) @ coords)
-            b[:, :, l] = p[:, np.newaxis] / phi[:, :, l]
+        for it in range(1, iters):
+            phi[:, :, it] = K.T @ (measures / (K @ b[:, :, it - 1]))
+            p = np.exp(np.log(phi[:, :, it]) @ coords)
+            b[:, :, it] = p[:, np.newaxis] / phi[:, :, it]
     if not np.all(np.isfinite(p)):
         raise _underflow_error("sinkhorn_barycenter")
     return p, b, phi
@@ -95,11 +95,11 @@ def _sinkhorn_forward(coords, measures, K, iters: int):
 def sinkhorn_barycenter(coords, measures, cost, epsilon: float, *, iters: int = 256) -> np.ndarray:
     """Entropic Wasserstein barycenter of the columns of `measures`
     (probability vectors, shape (n, S)) with weights `coords` (length S,
-    summing to 1) for the ground `cost` and regularisation `epsilon`.
+    summing to 1) for the ground `cost` and regularization `epsilon`.
 
     `iters` is the Sinkhorn budget (slots; L = iters - 1 iterations, as in
     the Julia original, so results agree at equal `iters`). The result is
-    not renormalised: it is a probability vector to solver tolerance once
+    not renormalized: it is a probability vector to solver tolerance once
     the iterations have converged.
     """
     K = regularize_cost(cost, epsilon)
@@ -174,13 +174,13 @@ def sinkhorn_differentiate(coords, measures, target, cost, epsilon: float, iters
     # Reverse over every forward iteration, slots iters-1 .. 1. Starting one
     # slot lower would drop the top term of the sum, which gives a wrong
     # gradient at small L (wrong sign at L = 2).
-    for l in range(iters - 1, 0, -1):
+    for it in range(iters - 1, 0, -1):
         for m in range(S):
-            w[m] += np.log(phi[:, m, l]) @ g
+            w[m] += np.log(phi[:, m, it]) @ g
             u = coords[m] * g - r[:, m]
-            x = K @ (u / phi[:, m, l])
-            y = measures[:, m] / (K @ b[:, m, l - 1]) ** 2
-            r[:, m] = -(K.T @ (x * y)) * b[:, m, l - 1]
+            x = K @ (u / phi[:, m, it])
+            y = measures[:, m] / (K @ b[:, m, it - 1]) ** 2
+            r[:, m] = -(K.T @ (x * y)) * b[:, m, it - 1]
         g = r.sum(axis=1)
     return p, w
 
@@ -211,12 +211,15 @@ def _loss_and_gradient(alpha, measures, target, cost, epsilon: float, iters: int
         raise ValueError("the regression loss needs a target")
     lam = logarithmic_change_of_variable(alpha)
     p, w = sinkhorn_differentiate(lam, measures, target, cost, epsilon, iters)
+    w = cast(np.ndarray, w)  # returned whenever a target is given, as here
     return sqeuc_loss(p, target), lam * (w - lam @ w)
 
 
-def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options) -> np.ndarray:
+def simplex_regression(
+    measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options
+) -> np.ndarray:
     """Wasserstein barycentric coordinates of `target` with respect to the
-    columns of `measures` (Bonneel, Peyré & Cuturi 2016, §4.3): minimise
+    columns of `measures` (Bonneel, Peyré & Cuturi 2016, §4.3): minimize
     E_L(lambda) = 1/2 ||P^(L)(lambda) - target||^2 over the simplex by
     L-BFGS on alpha with lambda = softmax(alpha), using the analytic gradient
     from `sinkhorn_differentiate`. alpha0 = 0 (the default) is the paper's

@@ -8,9 +8,9 @@ import pytest
 
 from graphtransport import (
     GeodesicSolution,
-    ShootingFallbackWarning,
     LogarithmicMean,
     MarkovGraph,
+    ShootingFallbackWarning,
     analysis,
     barycenter,
     geodesic,
@@ -301,8 +301,11 @@ def test_a_long_transport_converges_without_falling_back():
 
 def test_running_out_of_iterations_names_both_causes_not_the_boundary():
     G, A, B = _long_transport_pair()
-    with pytest.raises(ShootingError, match=r"did not converge in 2 iterations.*smallest input density is "
-                                            r"3\.7e-01, in rhoA\. .*maxiters=") as info:  # fmt: skip
+    with pytest.raises(
+        ShootingError,
+        match=r"did not converge in 2 iterations.*smallest input density is "
+        r"3\.7e-01, in rhoA\. .*maxiters=",
+    ) as info:
         transport_cost(G, A, B, fallback=False, maxiters=2)
     assert "near the boundary" not in str(info.value)
 
@@ -310,8 +313,10 @@ def test_running_out_of_iterations_names_both_causes_not_the_boundary():
 def test_running_out_of_iterations_falls_back_with_the_real_error():
     pytest.importorskip("cvxpy")
     G, A, B = _long_transport_pair()
-    match = (r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
-             r"smallest input density 3\.7e-01, in rhoA\)")
+    match = (
+        r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
+        r"smallest input density 3\.7e-01, in rhoA\)"
+    )
     with pytest.warns(ShootingFallbackWarning, match=match) as record:
         w = transport_cost(G, A, B, maxiters=2)
     assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
@@ -332,8 +337,11 @@ def test_barycenter_takes_the_log_maps_newton_budget_as_log_maxiters(grid4):
     # barycenter's maxiters is the descent's; the log maps' budget is log_maxiters,
     # and the unreachable-reference error now carries the log map's own failure
     G, A, B, _ = grid4
-    with pytest.raises(ShootingError, match=r"not reachable.*The log map failed with: log_map: Newton did not "
-                                            r"converge in 0 iterations.*\(log_maxiters=, default 50\)"):  # fmt: skip
+    with pytest.raises(
+        ShootingError,
+        match=r"not reachable.*The log map failed with: log_map: Newton did not "
+        r"converge in 0 iterations.*\(log_maxiters=, default 50\)",
+    ):
         barycenter(G, [A, B], [0.5, 0.5], log_maxiters=0, fallback=False)
 
 
@@ -347,8 +355,11 @@ def test_the_fallback_warning_names_each_entry_points_budget(grid4):
 @pytest.mark.parametrize(
     "call, match",
     [
-        (lambda G, A, B: analysis(G, A, [A, B], log_maxiters=5), r"analysis\(method='shooting'\) does not take "
-                                                                 r"log_maxiters; it takes .*maxiters"),
+        (
+            lambda G, A, B: analysis(G, A, [A, B], log_maxiters=5),
+            r"analysis\(method='shooting'\) does not take "
+            r"log_maxiters; it takes .*maxiters",
+        ),
         (lambda G, A, B: barycenter(G, [A, B], [0.5, 0.5], phi0_init=A), r"barycenter.*does not take phi0_init"),
         (lambda G, A, B: geodesic(G, A, B, h=1.0), r"geodesic.*does not take h; it takes .*phi0_init"),
         (lambda G, A, B: transport_cost(G, A, B, init=A), r"transport_cost.*does not take init"),
@@ -404,7 +415,12 @@ def test_maxiters_warns_and_reports_it(grid4):
 
 @pytest.mark.parametrize(
     "kwargs, match",
-    [({"h": 0.0}, "h must"), ({"tol": -1.0}, "tol must"), ({"maxiters": 0}, "maxiters"), ({"log_tol": np.nan}, "log_tol")],
+    [
+        ({"h": 0.0}, "h must"),
+        ({"tol": -1.0}, "tol must"),
+        ({"maxiters": 0}, "maxiters"),
+        ({"log_tol": np.nan}, "log_tol"),
+    ],
 )
 def test_barycenter_rejects_bad_descent_parameters(grid4, kwargs, match):
     G, A, B, _ = grid4

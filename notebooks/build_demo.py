@@ -199,7 +199,8 @@ make the target a barycenter of the references. On the barycenter we just comput
 weights we started from."""),
     code("""gt.analysis(G, nu, refs)"""),
     md("""Shooting's barycenter is computed by gradient descent. The SOCP solves the same problem to its
-global optimum of its discretization, so it serves as the reference. The two agree up to the SOCP's O(1/N) time error:"""),
+global optimum of its discretization, so it serves as the reference. The two agree up to the SOCP's
+O(1/N) time error:"""),
     code("""nu_socp, J_socp, _ = gt.barycenter(G, refs, lam, method="socp")
 print(f"J: shooting {J:.4f}, socp {J_socp:.4f}   max |nu - nu_socp| = {np.abs(nu - nu_socp).max():.1e}")"""),
     md("""## Densities that touch zero
@@ -298,13 +299,17 @@ The subpackages expose the individual pieces:
 - `graphtransport.socp`: `geodesic_socp`, `barycenter_socp`
 - `graphtransport.sinkhorn`: the entropic core, with PyTorch and JAX backends for autograd
 
-See [choosing a method](https://dcgentile.github.io/graphtransport-py/methods/) for how the methods compare in cost as the graph grows."""),
+See [choosing a method](https://dcgentile.github.io/graphtransport-py/methods/) for how the methods
+compare in cost as the graph grows."""),
 ]
 
-nb = new_notebook(cells=cells, metadata={
-    "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
-    "language_info": {"name": "python"},
-})
+nb = new_notebook(
+    cells=cells,
+    metadata={
+        "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
+        "language_info": {"name": "python"},
+    },
+)
 if "--execute" in sys.argv:
     from nbclient import NotebookClient
 

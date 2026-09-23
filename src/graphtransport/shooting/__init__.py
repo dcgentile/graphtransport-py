@@ -1,8 +1,9 @@
 """Geodesics by shooting: the Hamiltonian flow and the exp/log maps.
 
-Ported from GraphTransportation.jl's shooting/. Self-contained numpy -- no
-conic solver -- and it accepts every AdmissibleMean, including the exact
-LogarithmicMean that the SOCP can only approximate with QuadLogMean.
+Corresponds to GraphTransportation.jl's shooting/. It needs no conic solver --
+the flow and its derivatives are torch code (shooting.hamiltonian) -- and it
+accepts every AdmissibleMean, including the exact LogarithmicMean that the
+SOCP can only approximate with QuadLogMean.
 
 Everything here needs **strictly positive** densities. For data supported on
 part of the graph, use the SOCP (exact) instead.

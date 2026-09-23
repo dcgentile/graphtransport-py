@@ -12,8 +12,7 @@ try:
     import torch
 except ImportError as exc:  # pragma: no cover - exercised only without torch
     raise ImportError(
-        "graphtransport.sinkhorn.backends.torch_backend requires PyTorch; "
-        "install it with `pip install 'graphtransport[torch]'`"
+        "graphtransport.sinkhorn.backends.torch_backend requires PyTorch; install it with `pip install torch`"
     ) from exc
 
 from graphtransport.sinkhorn.core import _check_epsilon, _check_problem, _underflow_error
@@ -41,7 +40,7 @@ def regularize_cost(cost, epsilon):
 def sinkhorn_barycenter(coords, measures, cost, epsilon, *, iters: int = 256, check: bool = True):
     """Entropic Wasserstein barycenter of the columns of ``measures`` (shape
     (n, S), probability vectors) with weights ``coords`` (length S) for the
-    ground ``cost`` and regularisation ``epsilon``; differentiable in
+    ground ``cost`` and regularization ``epsilon``; differentiable in
     ``coords``, ``measures`` and ``cost``.
 
     Inputs may be tensors or array-likes; they are promoted to the dtype and
@@ -51,7 +50,7 @@ def sinkhorn_barycenter(coords, measures, cost, epsilon, *, iters: int = 256, ch
     With ``check=True`` (default) a non-finite result -- the kernel
     underflowed; see ``graphtransport.sinkhorn.core`` -- raises
     FloatingPointError instead of returning nan. The test reads the result
-    back from the device, which forces a synchronisation on CUDA; pass
+    back from the device, which forces a synchronization on CUDA; pass
     ``check=False`` in a training loop where that matters.
     """
     measures = _as_float_tensor(measures)

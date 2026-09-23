@@ -25,7 +25,9 @@ here take and return numpy arrays.
 
 from __future__ import annotations
 
+import sys
 import warnings
+from typing import Literal, overload
 
 import numpy as np
 import torch
@@ -42,11 +44,20 @@ class TorchThreadsWarning(UserWarning):
 _threads_warned = False
 
 
+def _stacklevel_outside_package() -> int:
+    """The warnings.warn stacklevel of the first caller outside graphtransport,
+    so a warning raised deep in the solver points at the user's own line."""
+    frame, level = sys._getframe(1), 1
+    while frame is not None and frame.f_globals.get("__name__", "").startswith("graphtransport"):
+        frame, level = frame.f_back, level + 1
+    return level
+
+
 def _warn_about_threads() -> None:
-    """Measured on the test suite (graphs up to 16x16): the same wall time
-    with torch's default 10 threads as with one, at 3.6x the CPU time. Several
-    solves run in parallel would oversubscribe the machine. Changing torch's
-    global thread count is the caller's decision, so this only says so."""
+    """At the graph sizes shooting is for, torch's thread pool adds CPU time
+    without adding speed, and several solves run in parallel would
+    oversubscribe the machine. Changing torch's global thread count is the
+    caller's decision, so this only says so, once."""
     global _threads_warned
     if _threads_warned:
         return
@@ -56,10 +67,10 @@ def _warn_about_threads() -> None:
         warnings.warn(
             f"torch is using {threads} threads. The shooting solver runs many small torch operations, which "
             "gain nothing from threads at graph sizes up to a few hundred nodes but cost several times the CPU "
-            "time (3.6x on the test suite). Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially "
-            "when running solves in parallel. Filter TorchThreadsWarning to silence this.",
+            "time. Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially when running solves in "
+            "parallel. Filter TorchThreadsWarning to silence this.",
             TorchThreadsWarning,
-            stacklevel=3,
+            stacklevel=_stacklevel_outside_package(),
         )
 
 
@@ -181,8 +192,12 @@ def _torch_edges(G: MarkovGraph):
         x, y = G.E[:, 0], G.E[:, 1]
         q_xy = np.asarray(G.Q[x, y], dtype=float).ravel()
         q_yx = np.asarray(G.Q[y, x], dtype=float).ravel()
-        cached = (torch.as_tensor(x), torch.as_tensor(y), torch.as_tensor(q_xy, dtype=_DTYPE),
-                  torch.as_tensor(q_yx, dtype=_DTYPE))  # fmt: skip
+        cached = (
+            torch.as_tensor(x),
+            torch.as_tensor(y),
+            torch.as_tensor(q_xy, dtype=_DTYPE),
+            torch.as_tensor(q_yx, dtype=_DTYPE),
+        )
         G.__dict__["_torch_edges"] = cached
     return cached
 
@@ -218,9 +233,10 @@ def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
     This is forward-mode differentiation written out, the tangent-linear model:
     the chain rule through the graph is linear and explicit here, and only the
     elementwise second derivatives of the mean come from the mean itself
-    (closed forms, or one autodiff call on |E|-sized vectors). Carrying the k tangents as one batch is what makes the
-    Jacobian cheap: torch.func.jacfwd pushes them through vmap instead, which
-    was 40x slower on a 5x5 grid."""
+    (closed forms, or one autodiff call on |E|-sized vectors). Carrying the k
+    tangents as one batch is what makes the Jacobian cheap; torch.func.jacfwd
+    pushes them through vmap instead, one small operation per tangent, and is
+    much slower."""
     x, y, q_xy, q_yx = _torch_edges(G)
     mean = G.mean
     g = phi[x] - phi[y]
@@ -254,15 +270,20 @@ def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
 
 
 def _torch_rk4_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, h: float):
-    """One RK4 step of the state and, linearised, of the tangent block."""
+    """One RK4 step of the state and, linearized, of the tangent block."""
     k1r, k1p, l1r, l1p = _torch_flow_tangent(G, rho, phi, d_rho, d_phi)
-    k2r, k2p, l2r, l2p = _torch_flow_tangent(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p,
-                                             d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p)  # fmt: skip
-    k3r, k3p, l3r, l3p = _torch_flow_tangent(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p,
-                                             d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p)  # fmt: skip
+    k2r, k2p, l2r, l2p = _torch_flow_tangent(
+        G, rho + (h / 2) * k1r, phi + (h / 2) * k1p, d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p
+    )
+    k3r, k3p, l3r, l3p = _torch_flow_tangent(
+        G, rho + (h / 2) * k2r, phi + (h / 2) * k2p, d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p
+    )
     k4r, k4p, l4r, l4p = _torch_flow_tangent(G, rho + h * k3r, phi + h * k3p, d_rho + h * l3r, d_phi + h * l3p)
-    return (rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r), phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p),
-            d_rho + (h / 6) * (l1r + 2 * l2r + 2 * l3r + l4r), d_phi + (h / 6) * (l1p + 2 * l2p + 2 * l3p + l4p))  # fmt: skip
+    rho_next = rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r)
+    phi_next = phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
+    d_rho_next = d_rho + (h / 6) * (l1r + 2 * l2r + 2 * l3r + l4r)
+    d_phi_next = d_phi + (h / 6) * (l1p + 2 * l2p + 2 * l3p + l4p)
+    return rho_next, phi_next, d_rho_next, d_phi_next
 
 
 def _torch_replay_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, schedule):
@@ -296,7 +317,11 @@ def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, dep
     the same steps: if any column needs a bisection, all bisect.
     """
     rho_next, phi_next = _torch_rk4(G, rho, phi, dt)
-    if bool(torch.isfinite(rho_next).all()) and bool(torch.isfinite(phi_next).all()) and float(rho_next.min()) > floor_val:
+    if (
+        bool(torch.isfinite(rho_next).all())
+        and bool(torch.isfinite(phi_next).all())
+        and float(rho_next.min()) > floor_val
+    ):
         schedule.append(dt)
         return rho_next, phi_next
     if depth <= 0:
@@ -308,13 +333,29 @@ def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, dep
     return _advance_interval(G, rho_mid, phi_mid, dt / 2, floor_val, depth - 1, schedule)
 
 
-def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4,
-                     path: bool = False):
+@overload
+def _torch_integrate(
+    G: MarkovGraph,
+    rho,
+    phi,
+    nsteps: int,
+    T: float,
+    floor_val: float,
+    max_halvings: int = ...,
+    path: Literal[False] = ...,
+) -> tuple[torch.Tensor, torch.Tensor, list, None]: ...
+@overload
+def _torch_integrate(
+    G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ..., *, path: Literal[True]
+) -> tuple[torch.Tensor, torch.Tensor, list, tuple[torch.Tensor, torch.Tensor]]: ...
+def _torch_integrate(
+    G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4, path: bool = False
+):
     """Run the flow from tensors (rho, phi) over [0, T] in nsteps steps, without
     autodiff. Returns (rho_end, phi_end, schedule, paths): schedule[i] is the
     list of step lengths that step i was taken in (one entry unless it was
     bisected), and paths is (rho_path, phi_path), each (n, nsteps + 1), if
-    ``path`` else None."""  # fmt: skip
+    ``path`` else None."""
     _warn_about_threads()
     schedule = []
     rho_path, phi_path = [rho], [phi]
@@ -341,8 +382,9 @@ def _torch_replay(G: MarkovGraph, rho, phi, schedule):
     return rho, phi
 
 
-def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: float = 1.0,
-                          floor_rtol: float = 1e-6, max_halvings: int = 4):
+def integrate_hamiltonian(
+    G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: float = 1.0, floor_rtol: float = 1e-6, max_halvings: int = 4
+):
     """Integrate the flow forward from (rho0, phi0) over [0, T], returning the
     paths as (n, nsteps + 1) arrays.
 
@@ -354,7 +396,7 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
     Raises PositivityFloorError if a density would fall below
     ``rho_floor(G, rtol=floor_rtol)`` even after ``max_halvings`` bisections
     of the offending step. Callers are expected to catch it and fall back.
-    """  # fmt: skip
+    """
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     if not np.isfinite(T) or T <= 0:
@@ -370,14 +412,7 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
         raise ValueError(f"phi0 must have shape ({G.n},), got {phi.shape}")
     if not np.all(np.isfinite(phi)):
         raise ValueError("phi0 has non-finite entries")
-    _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val,
-                                                     max_halvings, path=True)  # fmt: skip
+    _, _, _, (rho_path, phi_path) = _torch_integrate(
+        G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val, max_halvings, path=True
+    )
     return rho_path.numpy(), phi_path.numpy()
-
-
-def _integrate_end(G: MarkovGraph, rho0, phi0, nsteps: int, T: float, floor_val: float, max_halvings: int = 4):
-    """The flow's end state only, on numpy arrays, without storing the path and
-    without the argument checks (callers have done them). Accepts a trailing
-    batch axis; the columns share one step schedule."""
-    rho, phi, _, _ = _torch_integrate(G, _as_tensor(rho0), _as_tensor(phi0), nsteps, T, floor_val, max_halvings)
-    return rho.numpy(), phi.numpy()

@@ -40,16 +40,43 @@ warnings.filterwarnings("ignore", message=".*torch.jit.script.*", category=Futur
 
 # ----- palette -----
 
-BLUE_RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
-             "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"]  # fmt: skip
+BLUE_RAMP = [
+    "#cde2fb",
+    "#b7d3f6",
+    "#9ec5f4",
+    "#86b6ef",
+    "#6da7ec",
+    "#5598e7",
+    "#3987e5",
+    "#2a78d6",
+    "#256abf",
+    "#1c5cab",
+    "#184f95",
+    "#104281",
+    "#0d366b",
+]
 THEMES = {
-    "light": dict(surface="#fcfcfb", ink="#0b0b0b", ink2="#52514e", muted="#898781", grid="#e1e0d9",
-                  axis="#c3c2b7", series=["#2a78d6", "#eb6834", "#1baf7a"],
-                  density=LinearSegmentedColormap.from_list("density", ["#fcfcfb", *BLUE_RAMP])),
-    "dark": dict(surface="#1a1a19", ink="#ffffff", ink2="#c3c2b7", muted="#898781", grid="#2c2c2a",
-                 axis="#383835", series=["#3987e5", "#d95926", "#199e70"],
-                 density=LinearSegmentedColormap.from_list("density", ["#1a1a19", *BLUE_RAMP[::-1]])),
-}  # fmt: skip
+    "light": dict(
+        surface="#fcfcfb",
+        ink="#0b0b0b",
+        ink2="#52514e",
+        muted="#898781",
+        grid="#e1e0d9",
+        axis="#c3c2b7",
+        series=["#2a78d6", "#eb6834", "#1baf7a"],
+        density=LinearSegmentedColormap.from_list("density", ["#fcfcfb", *BLUE_RAMP]),
+    ),
+    "dark": dict(
+        surface="#1a1a19",
+        ink="#ffffff",
+        ink2="#c3c2b7",
+        muted="#898781",
+        grid="#2c2c2a",
+        axis="#383835",
+        series=["#3987e5", "#d95926", "#199e70"],
+        density=LinearSegmentedColormap.from_list("density", ["#1a1a19", *BLUE_RAMP[::-1]]),
+    ),
+}
 
 
 def cached(name, compute):
@@ -77,8 +104,14 @@ def density_axes(ax, image, k, cmap, vmax, surface, smooth=False):
     # one square per node, except where a figure is purely illustrative (the hero):
     # smoothing would invent structure between nodes, and in the methods figure it
     # would look like Sinkhorn's genuine blur
-    ax.imshow(image.reshape(k, k), origin="lower", cmap=cmap, vmin=0, vmax=vmax,
-              interpolation="bicubic" if smooth else "nearest")  # fmt: skip
+    ax.imshow(
+        image.reshape(k, k),
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=vmax,
+        interpolation="bicubic" if smooth else "nearest",
+    )
     ax.set_xticks([]), ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
@@ -117,7 +150,7 @@ def hero():
         image = ax.images[0]
         fig.subplots_adjust(0, 0, 1, 1)
 
-        def draw(j):
+        def draw(j, image=image):  # bound now; the animation is saved in this iteration anyway
             image.set_data(rho[:, j].reshape(K_HERO, K_HERO))
             return (image,)
 
@@ -145,7 +178,7 @@ def methods():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, 3, figsize=(7.2, 2.7))
         fig.patch.set_facecolor(t["surface"])
-        for ax, (name, mid) in zip(axes, mids.items()):
+        for ax, (name, mid) in zip(axes, mids.items(), strict=True):
             density_axes(ax, mid, K_HERO, t["density"], vmax, t["surface"])
             ax.set_title(name, color=t["ink"], fontsize=10)
         save(fig, "methods", theme)
@@ -179,8 +212,8 @@ def digits_data():
             if used.sum() == 1:
                 square[i, j] = digits[int(np.argmax(lam))]
             else:
-                square[i, j] = gt.barycenter(G, [d for d, u in zip(digits, used) if u], lam[used], method="socp",
-                                             N=12)[0]  # fmt: skip
+                refs = [d for d, u in zip(digits, used, strict=True) if u]
+                square[i, j] = gt.barycenter(G, refs, lam[used], method="socp", N=12)[0]
     return square
 
 
@@ -234,15 +267,28 @@ def speed():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.3), sharey=True)
         fig.patch.set_facecolor(t["surface"])
-        for ax, kind in zip(axes, ["near-uniform", "corner bumps"]):
+        for ax, kind in zip(axes, ["near-uniform", "corner bumps"], strict=True):
             ax.set_facecolor(t["surface"])
-            for color, name in zip(t["series"], SPEED_VARIANTS):
+            for color, name in zip(t["series"], SPEED_VARIANTS, strict=True):
                 seconds = data[kind, name]
-                ax.plot(nodes, seconds, "-o", color=color, lw=2, ms=6, label=name,
-                        markeredgecolor=t["surface"], markeredgewidth=1.5)  # fmt: skip
+                ax.plot(
+                    nodes,
+                    seconds,
+                    "-o",
+                    color=color,
+                    lw=2,
+                    ms=6,
+                    label=name,
+                    markeredgecolor=t["surface"],
+                    markeredgewidth=1.5,
+                )
             ax.set_yscale("log")
-            ax.set_title(f"{kind} ({'short' if kind == 'near-uniform' else 'long'} transport)", color=t["ink"],
-                         fontsize=10, loc="left")  # fmt: skip
+            ax.set_title(
+                f"{kind} ({'short' if kind == 'near-uniform' else 'long'} transport)",
+                color=t["ink"],
+                fontsize=10,
+                loc="left",
+            )
             ax.set_xlabel("graph nodes", color=t["ink2"], fontsize=9)
             ax.grid(True, which="major", axis="y", color=t["grid"], lw=0.8)
             ax.tick_params(colors=t["muted"], labelsize=8, which="both")
@@ -251,15 +297,24 @@ def speed():
             ax.spines["bottom"].set_color(t["axis"])
             ax.set_xlim(40, 300)
             # direct labels at the right end, nudged apart where lines meet
-            ends = sorted((data[kind, name][-1], name, color) for color, name in zip(t["series"], SPEED_VARIANTS))
+            ends = sorted(
+                (data[kind, name][-1], name, color) for color, name in zip(t["series"], SPEED_VARIANTS, strict=True)
+            )
             placed = []
-            for value, name, color in ends:
+            for value, name, _color in ends:
                 y = value
                 if placed and y < placed[-1] * 1.35:
                     y = placed[-1] * 1.35
                 placed.append(y)
-                ax.annotate(name, (nodes[-1], value), xytext=(nodes[-1] + 6, y), color=t["ink2"], fontsize=8,
-                            va="center", annotation_clip=False)  # fmt: skip
+                ax.annotate(
+                    name,
+                    (nodes[-1], value),
+                    xytext=(nodes[-1] + 6, y),
+                    color=t["ink2"],
+                    fontsize=8,
+                    va="center",
+                    annotation_clip=False,
+                )
         axes[0].set_ylabel("seconds per geodesic", color=t["ink2"], fontsize=9)
         legend = axes[0].legend(frameon=False, fontsize=8, loc="upper left")
         for text in legend.get_texts():
@@ -298,7 +353,7 @@ def gradient():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, len(panels), figsize=(8, 1.9))
         fig.patch.set_facecolor(t["surface"])
-        for ax, (image, title) in zip(axes, panels):
+        for ax, (image, title) in zip(axes, panels, strict=True):
             density_axes(ax, image, 5, t["density"], vmax, t["surface"])
             ax.set_title(title, color=t["ink"], fontsize=9)
         save(fig, "gradient", theme)

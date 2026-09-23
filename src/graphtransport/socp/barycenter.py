@@ -6,12 +6,19 @@ import numpy as np
 
 from graphtransport.api import GeodesicSolution
 from graphtransport.graph import MarkovGraph
-from graphtransport.socp.geodesic import _check_steps, _value, endpoint_potentials, geodesic_block
+from graphtransport.socp.geodesic import (
+    _check_steps,
+    _objective_value,
+    _value,
+    endpoint_potentials,
+    geodesic_block,
+)
 from graphtransport.solvers import import_cvxpy, solve_conic
 
 
-def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, check: bool = True,
-                    verbose: bool = False, **solver_kwargs):
+def barycenter_socp(
+    G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, check: bool = True, verbose: bool = False, **solver_kwargs
+):
     """The discrete transport barycenter of the reference densities ``refs``
     with weights ``lam`` as a single joint second-order-cone program: one
     geodesic block per reference with lam_i > 0, all sharing a free right
@@ -45,7 +52,7 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
     _check_steps(N)
     h = 1.0 / N
     nu = cp.Variable(G.n, nonneg=True)
-    constraints = [nu @ G.pi == 1]
+    constraints: list = [nu @ G.pi == 1]
     blocks = []
     for i in active:
         blk = geodesic_block(G, N, h, np.asarray(refs[i], dtype=float), nu)
@@ -55,11 +62,15 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
     objective = h * sum(float(lam[i]) * blk["action"] for i, blk in blocks)
     problem = cp.Problem(cp.Minimize(objective), constraints)
     status = solve_conic(
-        problem, solver, "barycenter_socp", check=check, verbose=verbose,
+        problem,
+        solver,
+        "barycenter_socp",
+        check=check,
+        verbose=verbose,
         hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate. The joint "
-             "program is len(lam > 0) times the size of one geodesic.",
+        "program is len(lam > 0) times the size of one geodesic.",
         **solver_kwargs,
-    )  # fmt: skip
+    )
     solvetime = float(problem.solver_stats.solve_time or 0.0)
 
     # A failed solve leaves every .value at None; report NaN of the right shape
@@ -72,9 +83,16 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
         geodesics.append(
             GeodesicSolution(
                 float(h * action) if action is not None else np.nan,
-                _value(blk["rho"], (G.n, N + 1)), m, m[:, 0].copy(), phi0, phi1, status, solvetime, i,
-            )  # fmt: skip
+                _value(blk["rho"], (G.n, N + 1)),
+                m,
+                m[:, 0].copy(),
+                phi0,
+                phi1,
+                status,
+                solvetime,
+                i,
+            )
         )
     nu_value = np.full(G.n, np.nan) if nu.value is None else np.asarray(nu.value, dtype=float)
-    J = float(problem.value) if problem.value is not None else np.nan
+    J = _objective_value(problem)
     return nu_value, J, geodesics

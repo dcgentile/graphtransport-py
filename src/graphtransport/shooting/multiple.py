@@ -11,8 +11,7 @@ with the residuals
 
 at each junction and rho_{K-1}(end) - target at t = 1. Each segment is short,
 so its flow map bends less than the whole transport's, and on long transports
-Newton needs fewer steps: on a 10x10 grid with bumps in opposite corners, 8
-iterations at K=4 against single shooting's 19, 4.9 s against 7.5 s. Each
+Newton needs fewer steps (about half as many, corner to corner on a grid). Each
 step costs more -- a Jacobian carries about twice as many tangents -- so on
 short transports single shooting stays cheaper.
 
@@ -72,14 +71,16 @@ def _gauge(G: MarkovGraph, phi: np.ndarray) -> np.ndarray:
     return phi - (G.pi @ phi) / G.pi.sum()
 
 
-def initial_states_from_potential(G: MarkovGraph, nu: np.ndarray, phi0: np.ndarray, segments: int, nsteps: int,
-                                  floor_val: float):
+def initial_states_from_potential(
+    G: MarkovGraph, nu: np.ndarray, phi0: np.ndarray, segments: int, nsteps: int, floor_val: float
+):
     """Segment start states (rho_starts, phi_starts), each (n, segments), from
     one sweep of the flow from (nu, phi0): the warm start from a single-shooting
-    potential. None if the sweep hits the positivity floor."""  # fmt: skip
+    potential. None if the sweep hits the positivity floor."""
     try:
-        _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(nu), _as_tensor(phi0), nsteps, 1.0,
-                                                         floor_val, path=True)  # fmt: skip
+        _, _, _, (rho_path, phi_path) = _torch_integrate(
+            G, _as_tensor(nu), _as_tensor(phi0), nsteps, 1.0, floor_val, path=True
+        )
     except PositivityFloorError:
         return None
     starts = np.concatenate([[0], np.cumsum(segment_steps(nsteps, segments))[:-1]])
@@ -116,8 +117,8 @@ class _System:
         phi_s[:, 0] = _full(G, x[:m], 0.0)
         for k in range(1, K):
             off = m + 2 * m * (k - 1)
-            rho_s[:, k] = _full(G, x[off:off + m], 1.0)
-            phi_s[:, k] = _full(G, x[off + m:off + 2 * m], 0.0)
+            rho_s[:, k] = _full(G, x[off : off + m], 1.0)
+            phi_s[:, k] = _full(G, x[off + m : off + 2 * m], 0.0)
         return rho_s, phi_s
 
     def residual(self, x):
@@ -129,8 +130,9 @@ class _System:
             raise PositivityFloorError("a junction density is at or below the positivity floor")
         R, schedules = [], []
         for k in range(K):
-            rho_e, phi_e, schedule, _ = _torch_integrate(G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]),
-                                                         self.steps[k], self.T[k], self.floor_val)  # fmt: skip
+            rho_e, phi_e, schedule, _ = _torch_integrate(
+                G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]), self.steps[k], self.T[k], self.floor_val
+            )
             schedules.append(schedule)
             rho_e, phi_e = rho_e.numpy(), phi_e.numpy()
             if k < K - 1:
@@ -163,8 +165,9 @@ class _System:
             else:
                 col0 = m + 2 * m * (k - 1)
                 d_rho, d_phi = torch.cat([self.lift, zero], dim=1), torch.cat([zero, self.lift], dim=1)
-            _, _, d_rho_e, d_phi_e = _torch_replay_tangent(G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]),
-                                                           d_rho, d_phi, schedules[k])  # fmt: skip
+            _, _, d_rho_e, d_phi_e = _torch_replay_tangent(
+                G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]), d_rho, d_phi, schedules[k]
+            )
             d_rho_e, d_phi_e = d_rho_e.numpy(), d_phi_e.numpy()
             if k < K - 1:
                 d_gauge = d_phi_e - (G.pi @ d_phi_e) / G.pi.sum()
@@ -178,29 +181,41 @@ class _System:
         )
 
 
-def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps: int, tol: float, maxiters: int,
-                            floor_val: float, verbose: bool = False, init=None, give_up_early: bool = False):
+def solve_multiple_shooting(
+    G: MarkovGraph,
+    nu,
+    target,
+    *,
+    segments: int,
+    nsteps: int,
+    tol: float,
+    maxiters: int,
+    floor_val: float,
+    verbose: bool = False,
+    init=None,
+    give_up_early: bool = False,
+):
     """Newton on the multiple-shooting system. nu and target must already be
     checked interior probability densities (log_map does that).
 
     ``init`` is None or (rho_starts, phi_starts), each (n, segments): the
     state at the start of every segment. The default puts the junction
     densities on the straight line from nu to target and each segment's
-    potential at the linearised geodesic between consecutive junctions.
+    potential at the linearized geodesic between consecutive junctions.
 
     ``give_up_early`` (log_map's segments="auto") raises as soon as Newton is
     evidently stalling, so the caller can go back to single shooting: if the
     first step is cut to 1/8 or less, or the residual has not halved after
-    three steps. Every multiple-shooting solve that converged on the n x n
-    grids measured took a first step of 1/4 or more and halved its residual
-    within three; the one that failed (7x7 corner bumps, 1/16, then residual
-    41 -> 39 over 8 steps) spent ~10 s before auto could fall back.
+    three steps. On the grid transports measured, every multiple-shooting
+    solve that converged took a first step of 1/4 or more and halved its
+    residual within three steps, while the ones that stalled did neither
+    (tests/test_shooting_multiple.py has a stalling case).
 
     Returns (rho_starts, phi_starts, iters, residual). phi_starts are gauge
     fixed; the flow's potential drifts by a constant along a segment, so a
     continuous potential path is obtained by adding that drift back (see
     geodesic_shooting). Raises ShootingError on failure.
-    """  # fmt: skip
+    """
     from graphtransport.shooting.explog import ShootingError, solve_weighted_laplacian
 
     n, K = G.n, segments
@@ -212,10 +227,12 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
     if init is None:
         rho_starts = np.column_stack([(1 - t) * nu + t * target for t in t_start])
         rho_ends = np.column_stack([rho_starts[:, 1:], target])
-        phi_starts = np.column_stack([
-            solve_weighted_laplacian(G, rho_starts[:, k], G.pi * (rho_ends[:, k] - rho_starts[:, k])) / T[k]
-            for k in range(K)
-        ])  # fmt: skip
+        phi_starts = np.column_stack(
+            [
+                solve_weighted_laplacian(G, rho_starts[:, k], G.pi * (rho_ends[:, k] - rho_starts[:, k])) / T[k]
+                for k in range(K)
+            ]
+        )
     else:
         rho_starts, phi_starts = (np.array(a, dtype=float) for a in init)
         if rho_starts.shape != (n, K) or phi_starts.shape != (n, K):
@@ -237,9 +254,7 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
             rho_s, phi_s = system.unpack(x)
             x = system.pack(rho_s, phi_s / 2)
     if R is None:
-        raise ShootingError(
-            f"log_map(segments={K}): no admissible initial state found. Fall back to method='socp'."
-        )
+        raise ShootingError(f"log_map(segments={K}): no admissible initial state found. Fall back to method='socp'.")
 
     r = r_start = norm(R)
     iters = 0

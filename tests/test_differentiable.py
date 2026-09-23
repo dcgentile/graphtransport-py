@@ -2,8 +2,6 @@
 shooting solve (implicit function theorem), and the policies for methods and
 fallbacks that are not differentiable."""
 
-import warnings
-
 import numpy as np
 import pytest
 import torch
@@ -33,7 +31,7 @@ def _directional_check(G, f, x0, grad, seed, h=1e-5, rtol=1e-7):
     # Random directions, mass-changing ones included. The API rejects a density
     # whose mass is off by more than 1e-6 -- the guard against passing a
     # probability vector for a pi-density -- so the perturbed inputs are
-    # renormalised; the solver normalises inside the graph, so the gradient at
+    # renormalized; the solver normalizes inside the graph, so the gradient at
     # mass 1 is the gradient of that composition.
     pi = torch.tensor(G.pi)
     rng = np.random.default_rng(seed)
@@ -144,8 +142,14 @@ def test_second_order_gradients_raise_rather_than_return_wrong_values(grid4):
 def test_other_methods_refuse_inputs_that_require_grad(grid4):
     a, b = _pair(grid4, 11)
     with pytest.raises(TypeError, match="method='shooting' only.*'sinkhorn' is not differentiable"):
-        transport_cost(grid4, torch.tensor(a, requires_grad=True), torch.tensor(b), method="sinkhorn",
-                       cost=ground_cost(grid4), epsilon=0.1)  # fmt: skip
+        transport_cost(
+            grid4,
+            torch.tensor(a, requires_grad=True),
+            torch.tensor(b),
+            method="sinkhorn",
+            cost=ground_cost(grid4),
+            epsilon=0.1,
+        )
 
 
 def test_other_methods_run_on_tensors_without_grad(grid4):

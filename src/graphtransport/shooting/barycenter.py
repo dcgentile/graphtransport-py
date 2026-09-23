@@ -24,9 +24,23 @@ def _positive_float(value, name: str, *, allow_zero: bool = False) -> float:
     return value
 
 
-def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: int = 200, tol: float = 1e-5,
-                        ftol: float = 1e-12, nsteps: int = 150, log_tol: float = 1e-12, log_maxiters: int = 50,
-                        segments="auto", init=None, floor_rtol: float = 1e-6, verbose: bool = False):
+def barycenter_shooting(
+    G: MarkovGraph,
+    refs,
+    lam,
+    *,
+    h: float = 1.0,
+    maxiters: int = 200,
+    tol: float = 1e-5,
+    ftol: float = 1e-12,
+    nsteps: int = 150,
+    log_tol: float = 1e-12,
+    log_maxiters: int = 50,
+    segments="auto",
+    init=None,
+    floor_rtol: float = 1e-6,
+    verbose: bool = False,
+):
     """The discrete transport barycenter of ``refs`` with weights ``lam``, by
     intrinsic gradient descent: each iteration log-maps nu to every reference
     (warm-started from the previous iteration, retried cold if that stalls),
@@ -42,7 +56,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     unreachable reference or an increase of J, and doubled back toward its
     initial value after an accepted step. The descent is first order, so it
     converges linearly; barycenter_socp, the global optimum of its
-    discretisation, remains the reference.
+    discretization, remains the reference.
 
     Returns (nu, J, info), info = {"iters", "status", "J_hist", "grad_hist",
     "h"}: the objective and the Riemannian gradient norm per iteration
@@ -59,7 +73,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     more than the default 50. ``segments`` > 1 solves each log map by multiple
     shooting (shooting.multiple), warm-started from the previous iteration's
     potential as single shooting is.
-    """  # fmt: skip
+    """
     h = _positive_float(h, "h")
     tol = _positive_float(tol, "tol")
     ftol = _positive_float(ftol, "ftol", allow_zero=True)
@@ -94,8 +108,17 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
             result = None
             for start in (inits[i], None):
                 try:
-                    result = log_map(G, base, refs[i], nsteps=nsteps, tol=log_tol, maxiters=log_maxiters,
-                                     phi0_init=start, floor_rtol=floor_rtol, segments=segments)
+                    result = log_map(
+                        G,
+                        base,
+                        refs[i],
+                        nsteps=nsteps,
+                        tol=log_tol,
+                        maxiters=log_maxiters,
+                        phi0_init=start,
+                        floor_rtol=floor_rtol,
+                        segments=segments,
+                    )
                     break
                 except (ShootingError, PositivityFloorError) as exc:
                     last_failure[:] = [exc]
@@ -140,12 +163,13 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
                 candidate = exp_map(G, nu, h * g, nsteps=nsteps, kind="potential", floor_rtol=floor_rtol)
             except PositivityFloorError:
                 candidate = None
-            unreachable = candidate is None or candidate.min() <= floor_val
-            if not unreachable:
+            rs_new = None
+            if candidate is not None and candidate.min() > floor_val:
                 rs_new = logmaps(candidate, {i: rs[i].phi0 for i in active})
-                unreachable = rs_new is None
-                if not unreachable and objective(rs_new) < J:
-                    J_new = objective(rs_new)
+            unreachable = rs_new is None
+            if rs_new is not None:
+                J_new = objective(rs_new)
+                if J_new < J:
                     decreased = J - J_new > ftol * abs(J)
                     nu, rs, J = candidate, rs_new, J_new
                     accepted = True

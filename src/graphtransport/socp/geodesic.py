@@ -50,12 +50,11 @@ def _mean_cone(cp, mean: AdmissibleMean, rx, ry, theta):
         return [cp.PowCone3D(rx + ry, rx + ry - 2 * theta, rx - ry, 0.5)]
     if isinstance(mean, QuadLogMean):
         thetas = [cp.Variable(theta.shape, nonneg=True) for _ in range(mean.K)]
-        cones = [cp.PowCone3D(rx, ry, tk, float(a)) for tk, a in zip(thetas, mean.alpha)]
-        return cones + [theta <= sum(float(w) * tk for w, tk in zip(mean.w, thetas))]
+        cones = [cp.PowCone3D(rx, ry, tk, float(a)) for tk, a in zip(thetas, mean.alpha, strict=True)]
+        return cones + [theta <= sum(float(w) * tk for w, tk in zip(mean.w, thetas, strict=True))]
     if isinstance(mean, LogarithmicMean):
         raise ValueError(
-            "LogarithmicMean has no conic representation; use QuadLogMean(K) in the SOCP "
-            "(K=8 is accurate to 1e-10)"
+            "LogarithmicMean has no conic representation; use QuadLogMean(K) in the SOCP (K=8 is accurate to 1e-10)"
         )
     raise TypeError(f"unsupported mean for the SOCP: {mean!r}")
 
@@ -64,6 +63,11 @@ def _check_steps(N) -> None:
     """N must be a positive integer (bool is an int, hence the first clause)."""
     if isinstance(N, bool) or not isinstance(N, (int, np.integer)) or N < 1:
         raise ValueError(f"N must be an integer >= 1 (the number of time intervals), got {N!r}")
+
+
+def _objective_value(problem) -> float:
+    """A solved problem's objective, or NaN if the solve produced none."""
+    return np.nan if problem.value is None else float(np.asarray(problem.value))
 
 
 def _value(variable, shape: tuple[int, int]) -> np.ndarray:
@@ -114,10 +118,16 @@ def geodesic_block(G: MarkovGraph, N: int, h: float, left, right) -> dict:
 
     action = cp.sum(G.kappa @ w)
     return {
-        "rho": rho, "m": m, "theta": theta, "w": w,
-        "c_left": c_left, "c_right": c_right, "c_cont": c_cont,
-        "constraints": constraints, "action": action,
-    }  # fmt: skip
+        "rho": rho,
+        "m": m,
+        "theta": theta,
+        "w": w,
+        "c_left": c_left,
+        "c_right": c_right,
+        "c_cont": c_cont,
+        "constraints": constraints,
+        "action": action,
+    }
 
 
 def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
@@ -128,11 +138,12 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     objective (lam_i in the barycenter program), divided back out so the
     result is always the potential of the unweighted geodesic.
 
-    cvxpy canonicalises ``lhs == rhs`` as ``lhs - rhs == 0`` and reports the
+    cvxpy canonicalizes ``lhs == rhs`` as ``lhs - rhs == 0`` and reports the
     multiplier y with d(optimum)/d(rhs) = -y, so the sign is flipped here
     (calibrated against finite differences and the two-node closed form in
     the tests, as the Julia package does for JuMP's convention).
     """
+
     def phi(constraint):
         dual = constraint.dual_value
         if dual is None:  # a failed solve with check=False
@@ -142,8 +153,9 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     return phi(block["c_left"]), phi(block["c_right"])
 
 
-def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check: bool = True,
-                  verbose: bool = False, **solver_kwargs) -> GeodesicSolution:
+def geodesic_socp(
+    G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check: bool = True, verbose: bool = False, **solver_kwargs
+) -> GeodesicSolution:
     """The discrete transport geodesic between densities rhoA and rhoB on G as
     a single second-order-cone program. W2 is the squared distance.
 
@@ -164,14 +176,22 @@ def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check
     blk = geodesic_block(G, N, h, rhoA, rhoB)
     problem = cp.Problem(cp.Minimize(h * blk["action"]), blk["constraints"])
     status = solve_conic(
-        problem, solver, "geodesic_socp", check=check, verbose=verbose,
+        problem,
+        solver,
+        "geodesic_socp",
+        check=check,
+        verbose=verbose,
         hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate.",
         **solver_kwargs,
-    )  # fmt: skip
+    )
     rho = _value(blk["rho"], (G.n, N + 1))
     m = _value(blk["m"], (G.E.shape[0], N))
     return GeodesicSolution(
-        float(problem.value) if problem.value is not None else np.nan,
-        rho, m, m[:, 0].copy(),
-        *endpoint_potentials(G, blk), status, float(problem.solver_stats.solve_time or 0.0),
-    )  # fmt: skip
+        _objective_value(problem),
+        rho,
+        m,
+        m[:, 0].copy(),
+        *endpoint_potentials(G, blk),
+        status,
+        float(problem.solver_stats.solve_time or 0.0),
+    )

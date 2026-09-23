@@ -27,7 +27,7 @@ def test_bfs_hops_grid():
     H = bfs_hops(_grid(3))
     assert H[0, 0] == 0
     assert H[0, 1] == 1
-    assert H[0, 4] == 2  # corner to centre
+    assert H[0, 4] == 2  # corner to center
     assert H[0, 8] == 4  # corner to opposite corner
     np.testing.assert_allclose(H, H.T)
 
@@ -103,7 +103,7 @@ STAR = [(0, 1), (0, 2), (0, 3)]
 
 @pytest.mark.filterwarnings("error")
 @pytest.mark.parametrize("edges", [PATH3, CYCLE4, STAR], ids=["path3", "cycle4", "star"])
-def test_lazy_diffusion_cost_separates_nodes_with_the_same_neighbourhood(edges):
+def test_lazy_diffusion_cost_separates_nodes_with_the_same_neighborhood(edges):
     G = _graph(edges)
     for t in (1, 2, 5):
         C = ground_cost(G, "diffusion", t=t)

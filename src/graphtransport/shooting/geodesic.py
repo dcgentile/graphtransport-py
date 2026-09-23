@@ -13,9 +13,19 @@ from graphtransport.shooting.explog import log_map
 from graphtransport.shooting.hamiltonian import integrate_hamiltonian
 
 
-def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                      phi0_init=None, floor_rtol: float = 1e-6, segments="auto",
-                      verbose: bool = False) -> GeodesicSolution:
+def geodesic_shooting(
+    G: MarkovGraph,
+    rhoA,
+    rhoB,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    phi0_init=None,
+    floor_rtol: float = 1e-6,
+    segments="auto",
+    verbose: bool = False,
+) -> GeodesicSolution:
     """The geodesic from rhoA to rhoB: Newton shooting on the Hamiltonian flow
     (log_map) for the initial potential, then the flow integrated to produce
     the path. Fourth-order in time (RK4's truncation error), and requires both
@@ -34,23 +44,40 @@ def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: flo
     amplifies the error in phi0 the same way single shooting's Newton system
     does. The potential's constant drift along each segment is carried across
     the junctions, so phi is continuous and phi1 matches single shooting's.
-    """  # fmt: skip
+    """
     t0 = time.perf_counter()
-    r = log_map(G, rhoA, rhoB, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                floor_rtol=floor_rtol, segments=segments, verbose=verbose)
+    r = log_map(
+        G,
+        rhoA,
+        rhoB,
+        nsteps=nsteps,
+        tol=tol,
+        maxiters=maxiters,
+        phi0_init=phi0_init,
+        floor_rtol=floor_rtol,
+        segments=segments,
+        verbose=verbose,
+    )
     if r.starts is None:
         rhoA = np.asarray(rhoA, dtype=float)
-        rho_path, phi_path = integrate_hamiltonian(G, rhoA / (rhoA @ G.pi), r.phi0, nsteps=nsteps,
-                                                   floor_rtol=floor_rtol)  # fmt: skip
+        rho_path, phi_path = integrate_hamiltonian(
+            G, rhoA / (rhoA @ G.pi), r.phi0, nsteps=nsteps, floor_rtol=floor_rtol
+        )
     else:
         rho_path, phi_path = _stitch_segments(G, r.starts, nsteps, floor_rtol)
     x, y = G.E[:, 0], G.E[:, 1]
     rho_t, phi_t = rho_path[:, :-1], phi_path[:, :-1]
     m = G.mean(rho_t[x], rho_t[y]) * (phi_t[x] - phi_t[y])
     return GeodesicSolution(
-        r.W2, rho_path, m, m[:, 0].copy(), -2 * r.phi0, 2 * phi_path[:, -1], "converged",
+        r.W2,
+        rho_path,
+        m,
+        m[:, 0].copy(),
+        -2 * r.phi0,
+        2 * phi_path[:, -1],
+        "converged",
         time.perf_counter() - t0,
-    )  # fmt: skip
+    )
 
 
 def _stitch_segments(G: MarkovGraph, starts, nsteps: int, floor_rtol: float):
@@ -64,8 +91,9 @@ def _stitch_segments(G: MarkovGraph, starts, nsteps: int, floor_rtol: float):
     rho_path, phi_path = [rho_s[:, [0]]], [phi_s[:, [0]]]
     shift = 0.0
     for k, steps in enumerate(segment_steps(nsteps, rho_s.shape[1])):
-        rho_k, phi_k = integrate_hamiltonian(G, rho_s[:, k], phi_s[:, k] + shift, nsteps=steps, T=steps / nsteps,
-                                             floor_rtol=floor_rtol)  # fmt: skip
+        rho_k, phi_k = integrate_hamiltonian(
+            G, rho_s[:, k], phi_s[:, k] + shift, nsteps=steps, T=steps / nsteps, floor_rtol=floor_rtol
+        )
         rho_path.append(rho_k[:, 1:])
         phi_path.append(phi_k[:, 1:])
         if k + 1 < rho_s.shape[1]:

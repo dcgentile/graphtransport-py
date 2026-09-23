@@ -27,7 +27,7 @@ def test_admissibility(theta: AdmissibleMean):
     assert np.all(value > 0)
     np.testing.assert_allclose(value, theta(t, s))  # symmetric
     np.testing.assert_allclose(theta(3 * s, 3 * t), 3 * value)  # 1-homogeneous
-    np.testing.assert_allclose(theta(s, s), s)  # normalised
+    np.testing.assert_allclose(theta(s, s), s)  # normalized
     # concave along the diagonal direction: theta((s+s')/2, (t+t')/2) >= mean of thetas
     s2, t2 = _pairs(seed=1)
     assert np.all(theta((s + s2) / 2, (t + t2) / 2) >= (value + theta(s2, t2)) / 2 - 1e-12)
@@ -58,10 +58,10 @@ def test_known_values():
 
 def test_ordering_harmonic_geometric_logarithmic_arithmetic():
     s, t = _pairs()
-    h, g, l, a = (m(s, t) for m in (HarmonicMean(), GeometricMean(), LogarithmicMean(), ArithmeticMean()))
+    h, g, lg, a = (m(s, t) for m in (HarmonicMean(), GeometricMean(), LogarithmicMean(), ArithmeticMean()))
     assert np.all(h <= g + 1e-12)
-    assert np.all(g <= l + 1e-12)
-    assert np.all(l <= a + 1e-12)
+    assert np.all(g <= lg + 1e-12)
+    assert np.all(lg <= a + 1e-12)
 
 
 def test_logarithmic_series_branch_matches_closed_form_at_the_switch():
@@ -182,8 +182,7 @@ def test_torch_partial_s_is_the_derivative_of_torch_theta(theta: AdmissibleMean)
     s, t = _pairs(300, seed=4)  # away from the extreme ratios, where autodiff of theta itself cancels
     S = torch.tensor(s, requires_grad=True)
     (grad,) = torch.autograd.grad(theta.torch_theta(S, torch.tensor(t)).sum(), S)
-    np.testing.assert_allclose(grad.numpy(), theta.torch_partial_s(torch.tensor(s), torch.tensor(t)).numpy(),
-                               rtol=1e-9)  # fmt: skip
+    np.testing.assert_allclose(grad.numpy(), theta.torch_partial_s(torch.tensor(s), torch.tensor(t)).numpy(), rtol=1e-9)
 
 
 @pytest.mark.parametrize("theta", MEANS, ids=repr)

@@ -17,15 +17,39 @@ import numpy as np
 from graphtransport.chains import markov_chain_from_edge_list, markov_chain_from_weight_matrix
 
 _HYPERCUBE_EDGES = [
-    (0, 1), (1, 2), (2, 3), (3, 0),
-    (0, 4), (1, 5), (2, 6), (3, 7),
-    (4, 5), (5, 6), (6, 7), (7, 4),
-    (0, 8), (1, 9), (2, 10), (3, 11),
-    (4, 12), (5, 13), (6, 14), (7, 15),
-    (8, 9), (9, 10), (10, 11), (11, 8),
-    (8, 12), (9, 13), (10, 14), (11, 15),
-    (12, 13), (13, 14), (14, 15), (15, 12),
-]  # fmt: skip
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4),
+    (0, 8),
+    (1, 9),
+    (2, 10),
+    (3, 11),
+    (4, 12),
+    (5, 13),
+    (6, 14),
+    (7, 15),
+    (8, 9),
+    (9, 10),
+    (10, 11),
+    (11, 8),
+    (8, 12),
+    (9, 13),
+    (10, 14),
+    (11, 15),
+    (12, 13),
+    (13, 14),
+    (14, 15),
+    (15, 12),
+]
 
 
 def triangle_markov_chain():
@@ -51,16 +75,12 @@ def t_markov_chain():
 def double_t_markov_chain():
     """Two T-shaped graphs (nodes 0-3 and 4-7) joined at corresponding
     vertices: 0-4, 1-5, 2-6, 3-7."""
-    return markov_chain_from_edge_list(
-        [(0, 1), (1, 2), (1, 3), (0, 4), (1, 5), (2, 6), (3, 7), (4, 5), (5, 6), (5, 7)]
-    )
+    return markov_chain_from_edge_list([(0, 1), (1, 2), (1, 3), (0, 4), (1, 5), (2, 6), (3, 7), (4, 5), (5, 6), (5, 7)])
 
 
 def triangular_prism_markov_chain():
     """Two triangular faces (0-1-2 and 3-4-5) joined by three edges."""
-    return markov_chain_from_edge_list(
-        [(0, 1), (1, 2), (2, 0), (0, 3), (1, 4), (2, 5), (3, 4), (4, 5), (5, 3)]
-    )
+    return markov_chain_from_edge_list([(0, 1), (1, 2), (2, 0), (0, 3), (1, 4), (2, 5), (3, 4), (4, 5), (5, 3)])
 
 
 def cube_markov_chain():
@@ -77,7 +97,7 @@ def hypercube_markov_chain():
 
 def weighted_hypercube_markov_chain(rng=None):
     """The 4-cube with random integer edge weights in {2, ..., 20} (a
-    symmetrised draw of two uniform integers in 1..10 per ordered pair), so
+    symmetrized draw of two uniform integers in 1..10 per ordered pair), so
     the stationary distribution is non-uniform. Julia draws fresh weights
     on every call; here ``rng`` (a seed or numpy Generator) makes the draw
     reproducible."""
@@ -101,7 +121,7 @@ def wheel_markov_chain():
 
 
 def grid_markov_chain(n: int):
-    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbour edges), n >= 2."""
+    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbor edges), n >= 2."""
     if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 2:
         raise ValueError(f"grid_markov_chain needs an integer n >= 2, got {n!r}")
     edges = []

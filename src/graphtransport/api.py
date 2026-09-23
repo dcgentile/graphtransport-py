@@ -10,8 +10,8 @@ numerical algorithm:
   (``fallback=False`` raises instead).
 - ``"socp"``: a second-order-cone program (needs ``graphtransport[socp]``).
   Handles densities supported on part of the graph, which shooting cannot;
-  time-discretisation error O(1/N).
-- ``"sinkhorn"``: entropic regularisation for a ground cost -- a different
+  time-discretization error O(1/N).
+- ``"sinkhorn"``: entropic regularization for a ground cost -- a different
   object from the other two, which compute the same discrete transport
   geodesic.
 
@@ -19,7 +19,7 @@ The default diverges from the Julia package, which defaults to ``:socp``.
 What shooting offers is fourth-order accuracy in time (RK4, against the
 SOCP's first order), gradients and no conic solver, not speed:
 the SOCP at its default N=10 is faster on the graphs measured (see the
-README). Shooting also cannot take boundary-supported data, and gets stiff
+documentation's "Choosing a method"). Shooting also cannot take boundary-supported data, and gets stiff
 as densities approach zero; both are reasons to pass ``method="socp"``, and
 the fallback warning says so.
 
@@ -36,8 +36,12 @@ import sys
 import time
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
+
+if TYPE_CHECKING:  # torch is imported lazily, only for tensor inputs
+    import torch
 
 from graphtransport.graph import MarkovGraph
 from graphtransport.sinkhorn.core import (
@@ -50,7 +54,7 @@ from graphtransport.sinkhorn.core import (
 
 # A density must integrate to 1 against pi to this tolerance. It is loose
 # enough to accept the output of an iterative solver (a barycenter fed back
-# into analysis) and tight enough to catch a density that was never normalised.
+# into analysis) and tight enough to catch a density that was never normalized.
 MASS_TOL = 1e-6
 
 
@@ -70,15 +74,17 @@ class GeodesicSolution:
     geodesics can be shorter than refs and this is what ties each one back.
 
     Methods that do not produce a quantity fill it with NaN (the Sinkhorn
-    method has no momenta or potentials).
+    method has no momenta or potentials). For numpy inputs the fields are a
+    float and numpy arrays; for torch inputs (geodesic on tensors) they are
+    tensors.
     """
 
-    W2: float
-    rho: np.ndarray
-    m: np.ndarray
-    m0: np.ndarray
-    phi0: np.ndarray
-    phi1: np.ndarray
+    W2: float | torch.Tensor
+    rho: np.ndarray | torch.Tensor
+    m: np.ndarray | torch.Tensor
+    m0: np.ndarray | torch.Tensor
+    phi0: np.ndarray | torch.Tensor
+    phi1: np.ndarray | torch.Tensor
     status: str
     solvetime: float
     ref_index: int | None = None
@@ -100,11 +106,28 @@ def _check_method(method: str, table: dict, what: str):
 # owned by none (verbose, compute_condition, a solver's own options) are left
 # to the method's signature.
 METHOD_KEYWORDS = {
-    "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
-                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback", "segments"}),
+    "shooting": frozenset(
+        {
+            "nsteps",
+            "tol",
+            "maxiters",
+            "phi0_init",
+            "phi0_inits",
+            "floor_rtol",
+            "h",
+            "ftol",
+            "log_tol",
+            "log_maxiters",
+            "init",
+            "qp_method",
+            "qp_solver",
+            "fallback",
+            "segments",
+        }
+    ),
     "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
     "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
-}  # fmt: skip
+}
 
 
 def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
@@ -124,7 +147,7 @@ def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
 
 # METHOD_KEYWORDS is per method, and the shooting keywords differ between entry
 # points (h is barycenter's, phi0_inits analysis's), so a keyword valid for
-# another shooting entry point used to pass the check above and fail far away
+# another shooting entry point would pass the check above and fail far away,
 # as "analyze_shooting() got an unexpected keyword argument 'maxiters'". The
 # accepted sets are read from the functions each entry point calls, so they
 # cannot drift; fallback and floor_rtol belong to the API wrappers.
@@ -136,8 +159,12 @@ def _shooting_entry_keywords(what: str) -> frozenset:
 
     from graphtransport.shooting import analyze_shooting, barycenter_shooting, geodesic_shooting
 
-    target = {"geodesic": geodesic_shooting, "transport_cost": _transport_cost_shooting,
-              "barycenter": barycenter_shooting, "analysis": analyze_shooting}[what]  # fmt: skip
+    target = {
+        "geodesic": geodesic_shooting,
+        "transport_cost": _transport_cost_shooting,
+        "barycenter": barycenter_shooting,
+        "analysis": analyze_shooting,
+    }[what]
     params = inspect.signature(target).parameters.values()
     return frozenset(p.name for p in params if p.kind is p.KEYWORD_ONLY) | _SHOOTING_WRAPPER_KEYWORDS
 
@@ -153,8 +180,12 @@ def _check_shooting_kwargs(what: str, kwargs: dict) -> None:
 
 # The keyword that sets each entry point's log-map Newton budget, for the
 # advice on a solve that ran out of iterations.
-_NEWTON_BUDGET = {"geodesic": "maxiters", "transport_cost": "maxiters", "barycenter": "log_maxiters",
-                  "analysis": "maxiters"}  # fmt: skip
+_NEWTON_BUDGET = {
+    "geodesic": "maxiters",
+    "transport_cost": "maxiters",
+    "barycenter": "log_maxiters",
+    "analysis": "maxiters",
+}
 
 
 # Input checks shared by every method. They live in the public entry points,
@@ -204,7 +235,7 @@ def _check_weights(lam, count: int) -> np.ndarray:
     return lam
 
 
-def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph):
+def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph) -> tuple[np.ndarray, float]:
     if cost is None:
         raise ValueError(f"{what}(method='sinkhorn') requires cost= (see ground_cost)")
     if epsilon is None:
@@ -212,18 +243,18 @@ def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph):
     cost = np.asarray(cost, dtype=float)
     if cost.shape != (G.n, G.n):
         raise ValueError(f"cost must be {G.n}x{G.n}, got {cost.shape}")
-    return cost
+    return cost, epsilon  # validated by the Sinkhorn core (_check_epsilon)
 
 
 def _barycenter_sinkhorn(G: MarkovGraph, refs, lam, *, cost=None, epsilon=None, iters: int = 256):
-    cost = _require_sinkhorn_kwargs("barycenter", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("barycenter", cost, epsilon, G)
     mu = np.column_stack([r * G.pi for r in refs])
     p = sinkhorn_barycenter(lam, mu, cost, epsilon, iters=iters)
     K = regularize_cost(cost, epsilon)
     active = np.flatnonzero(lam > 0)
     plans = [sinkhorn_plan(K, mu[:, i], p, iters=iters) for i in active]
-    J = float(sum(lam[i] * np.sum(cost * P) for i, P in zip(active, plans)))
-    marginal_errors = [float(np.abs(P.sum(axis=1) - mu[:, i]).sum()) for i, P in zip(active, plans)]
+    J = float(sum(lam[i] * np.sum(cost * P) for i, P in zip(active, plans, strict=True)))
+    marginal_errors = [float(np.abs(P.sum(axis=1) - mu[:, i]).sum()) for i, P in zip(active, plans, strict=True)]
     info = {"cost": cost, "epsilon": epsilon, "iters": iters, "marginal_errors": marginal_errors, "method": "sinkhorn"}
     return p / G.pi, J, info
 
@@ -242,7 +273,7 @@ def _geodesic_sinkhorn(
     G: MarkovGraph, rhoA, rhoB, *, N: int = 10, cost=None, epsilon=None, iters: int = 256, tol: float = 1e-6
 ):
     t0 = time.perf_counter()
-    cost = _require_sinkhorn_kwargs("geodesic", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("geodesic", cost, epsilon, G)
     if isinstance(N, bool) or not isinstance(N, (int, np.integer)) or N < 1:
         raise ValueError(f"N must be an integer >= 1, got {N!r}")
     # Only the path is needed here, so skip _barycenter_sinkhorn's objective
@@ -262,7 +293,7 @@ def _transport_cost_sinkhorn(
 ):
     """W2 needs one plan solve; the geodesic would compute N + 1 barycenters
     to get it. N is accepted (it is a geodesic keyword) and has no effect."""
-    cost = _require_sinkhorn_kwargs("transport_cost", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("transport_cost", cost, epsilon, G)
     W2, marginal_error = _endpoint_plan(G, rhoA, rhoB, cost, epsilon, iters)
     if marginal_error > tol:
         warnings.warn(
@@ -285,11 +316,10 @@ def _analysis_sinkhorn(
     compute_condition: bool = False,
     return_system: bool = False,
 ):
-    cost = _require_sinkhorn_kwargs("analysis", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("analysis", cost, epsilon, G)
     if compute_condition or return_system:
         raise ValueError(
-            "analysis(method='sinkhorn') is not a Gram-matrix method; "
-            "compute_condition/return_system are not available"
+            "analysis(method='sinkhorn') is not a Gram-matrix method; compute_condition/return_system are not available"
         )
     mu = np.column_stack([r * G.pi for r in refs])
     return simplex_regression(mu, target * G.pi, cost, epsilon, iters=iters, alpha0=alpha0)
@@ -371,12 +401,7 @@ class _explain_shooting_failure:
     can need more damped Newton steps than maxiters allows: on a 10x10 grid,
     corner bumps over a floor of 1e-3 converge in 112 iterations, in Julia as
     here, against the default 50. So the message reports the failure and the
-    smallest input density, and names both causes rather than guessing one.
-
-    (An earlier version blamed "the boundary" for every failure, then "long
-    transports making single shooting ill-conditioned". The long-transport
-    failures were the forward-difference Jacobian's; with the exact one,
-    Newton converges where Julia does.)"""
+    smallest input density, and names both causes rather than guessing one."""
 
     def __init__(self, what: str, **densities):
         self.what, self.densities = what, densities
@@ -423,7 +448,9 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         if not fallback:
             raise
         if not cvxpy_available():
-            note = f"{exc} (The automatic fallback to method='socp' needs graphtransport[socp], which is not installed.)"
+            note = (
+                f"{exc} (The automatic fallback to method='socp' needs graphtransport[socp], which is not installed.)"
+            )
             if isinstance(exc, _NotInterior):
                 raise _NotInterior(note, exc.summary) from exc
             raise ShootingError(note) from exc
@@ -435,7 +462,7 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         retry = f" Newton ran out of iterations, so raising {retry} may let shooting solve it exactly." if retry else ""
         warnings.warn(
             f"{what}: {summary}. Falling back to method='socp' with its "
-            "default N=10 (time-discretisation error O(1/N)); pass method='socp' to choose N, or fallback=False "
+            "default N=10 (time-discretization error O(1/N)); pass method='socp' to choose N, or fallback=False "
             f"to raise instead.{retry}",
             ShootingFallbackWarning,
             stacklevel=4,  # _with_fallback < the method wrapper < the entry point < the caller
@@ -443,8 +470,9 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         return run_socp()
 
 
-def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, floor_rtol: float = 1e-6,
-                       **kwargs) -> GeodesicSolution:
+def _geodesic_shooting(
+    G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs
+) -> GeodesicSolution:
     from graphtransport.shooting import geodesic_shooting
 
     def run():
@@ -456,9 +484,20 @@ def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, flo
     return _with_fallback("geodesic", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB))
 
 
-def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
-                             tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
-                             segments="auto", verbose: bool = False) -> float:
+def _transport_cost_shooting(
+    G: MarkovGraph,
+    rhoA,
+    rhoB,
+    *,
+    fallback: bool = True,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    phi0_init=None,
+    floor_rtol: float = 1e-6,
+    segments="auto",
+    verbose: bool = False,
+) -> float:
     """W2 from log_map alone: the path integration geodesic() adds is not
     needed. Takes geodesic's keywords, verbose included."""
     from graphtransport.shooting import log_map
@@ -467,10 +506,20 @@ def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = Tru
         a = _check_shooting_density(G, rhoA, "rhoA", floor_rtol)
         b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
         with _explain_shooting_failure("transport_cost", rhoA=a, rhoB=b):
-            return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                           floor_rtol=floor_rtol, segments=segments, verbose=verbose).W2  # fmt: skip
+            return log_map(
+                G,
+                a,
+                b,
+                nsteps=nsteps,
+                tol=tol,
+                maxiters=maxiters,
+                phi0_init=phi0_init,
+                floor_rtol=floor_rtol,
+                segments=segments,
+                verbose=verbose,
+            ).W2
 
-    return _with_fallback("transport_cost", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB).W2)
+    return _with_fallback("transport_cost", fallback, run, lambda: float(_geodesic_socp(G, rhoA, rhoB).W2))
 
 
 def _barycenter_shooting(G: MarkovGraph, refs, lam, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs):
@@ -540,10 +589,27 @@ def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
     import torch
 
     as_t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64)  # noqa: E731
-    return GeodesicSolution(as_t(sol.W2), as_t(sol.rho), as_t(sol.m), as_t(sol.m0), as_t(sol.phi0),
-                            as_t(sol.phi1), sol.status, sol.solvetime, sol.ref_index)  # fmt: skip
+    return GeodesicSolution(
+        as_t(sol.W2),
+        as_t(sol.rho),
+        as_t(sol.m),
+        as_t(sol.m0),
+        as_t(sol.phi0),
+        as_t(sol.phi1),
+        sol.status,
+        sol.solvetime,
+        sol.ref_index,
+    )
 
 
+@overload
+def _torch_geodesic(
+    G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: Literal[False]
+) -> GeodesicSolution: ...
+@overload
+def _torch_geodesic(
+    G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: Literal[True]
+) -> torch.Tensor: ...
 def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):
     """geodesic / transport_cost for torch inputs: a GeodesicSolution of
     tensors, or (cost_only) the tensor W2."""
@@ -589,8 +655,7 @@ def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what:
         try:
             return run()
         except (_NotInterior, ShootingError) as exc:
-            note = (f"{exc} (No fallback to method='socp': the inputs require grad, and the SOCP is not "
-                    "differentiable.)")  # fmt: skip
+            note = f"{exc} (No fallback to method='socp': the inputs require grad, and the SOCP is not differentiable.)"
             if isinstance(exc, _NotInterior):
                 raise _NotInterior(note, exc.summary) from exc
             raise ShootingError(note) from exc
@@ -623,15 +688,15 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     steps, default 150; rho then has nsteps + 1 columns), ``tol``,
     ``maxiters``, ``phi0_init``, ``segments`` (default "auto": single
     shooting, switching to multiple shooting on a long transport; an integer
-    fixes it -- see shooting.log_map and the README), ``verbose``. Honours every AdmissibleMean, including the exact
+    fixes it -- see shooting.log_map and the README), ``verbose``. Honors every AdmissibleMean, including the exact
     LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
     the two methods' potentials are directly comparable; status is
     "converged".
 
     method="socp": a single second-order-cone program
     (socp.geodesic_socp). Handles any densities, including boundary-supported
-    ones; time-discretisation error O(1/N). Keywords: ``N``, ``solver``,
-    ``check``, ``verbose``, plus solver options. Honours every conic
+    ones; time-discretization error O(1/N). Keywords: ``N``, ``solver``,
+    ``check``, ``verbose``, plus solver options. Honors every conic
     AdmissibleMean in G.mean (QuadLogMean for the logarithmic mean).
 
     method="sinkhorn": the entropic displacement interpolation for a ground
@@ -667,7 +732,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
 
-def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> float:
+def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> float | torch.Tensor:
     """The discrete transport distance W(rhoA, rhoB) (not squared):
     sqrt(geodesic(...).W2). See geodesic for the methods and keywords.
 
@@ -687,14 +752,16 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     if method == "shooting":
         _check_shooting_kwargs("transport_cost", kwargs)
     if _is_torch(rhoA, rhoB):
-        return _sqrt_zero_subgradient(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
+        return _sqrt_zero_subgradient(
+            _torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True)
+        )
     if method in TRANSPORT_COST_METHODS:
         rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
         return float(np.sqrt(TRANSPORT_COST_METHODS[method](G, rhoA, rhoB, **kwargs)))
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
 
 
-def _sqrt_zero_subgradient(W2):
+def _sqrt_zero_subgradient(W2: torch.Tensor) -> torch.Tensor:
     """sqrt(W2) with gradient 0 where W2 == 0, torch.linalg.norm's convention:
     sqrt's own derivative there is infinite, and inf * 0 gives a nan that
     would poison a training loop whose prediction matches its target. Zero is
@@ -716,7 +783,7 @@ def _reject_torch(what: str, *values) -> None:
 
 def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwargs):
     """The discrete transport barycenter of the reference densities ``refs``
-    with weights ``lam``: the minimiser of J(nu) = sum_i lam_i W^2(refs_i, nu).
+    with weights ``lam``: the minimizer of J(nu) = sum_i lam_i W^2(refs_i, nu).
 
     method="shooting" (default): intrinsic gradient descent with shooting
     geodesics (shooting.barycenter_shooting). Every reference with
@@ -729,7 +796,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     each log map, see shooting.log_map), ``nsteps``, ``init``, ``verbose``.
     First order, so it
     converges linearly; method="socp" solves the same problem to its global
-    optimum of its discretisation and is the reference.
+    optimum of its discretization and is the reference.
 
     method="socp": one joint second-order-cone program
     (socp.barycenter_socp), solved to its global optimum.
@@ -739,7 +806,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     be shorter than ``refs`` and ``geodesics[k]`` need not be the geodesic of
     ``refs[k]``. Keywords: ``N``, ``solver``, ``check``, ``verbose``.
 
-    method="sinkhorn": the entropically regularised Wasserstein barycenter
+    method="sinkhorn": the entropically regularized Wasserstein barycenter
     for a ground cost (Benamou et al. 2015; Bonneel, Peyré & Cuturi 2016).
     This is a different object from the discrete transport barycenter of
     the other methods: it depends on ``cost`` (see ground_cost) and
@@ -760,7 +827,9 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
 
 
-def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kwargs) -> np.ndarray:
+def analysis(
+    G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kwargs
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Recover the barycentric coordinates of ``target`` with respect to the
     reference densities ``refs``.
 
@@ -773,7 +842,7 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     ``return_system``, ``qp_method``, ``qp_solver``.
 
     A barycenter is recovered to solver tolerance only by the method that
-    synthesised it; the others recover it to their discretisation error,
+    synthesized it; the others recover it to their discretization error,
     since each checks stationarity in its own discrete convention.
 
     method="socp": socp.analyze_socp -- geodesic SOCPs from the
@@ -789,7 +858,7 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     ``compute_condition`` raise. Requires ``cost`` and ``epsilon``; keywords
     ``iters`` (default 256) and ``alpha0`` (initial pre-softmax point,
     default 0 = uniform weights). Recovers exactly the weights of a
-    barycenter synthesised by barycenter(method="sinkhorn") with the same
+    barycenter synthesized by barycenter(method="sinkhorn") with the same
     cost, epsilon and iters.
 
     Returns lam_hat on the simplex.

@@ -57,9 +57,7 @@ def test_edge_list_rejects_empty():
 
 
 def test_stationary_from_transition_recovers_known_pi():
-    Q, pi_expected = markov_chain_from_weight_matrix(
-        np.array([[0, 2, 1], [2, 0, 1], [1, 1, 0]], dtype=float)
-    )
+    Q, pi_expected = markov_chain_from_weight_matrix(np.array([[0, 2, 1], [2, 0, 1], [1, 1, 0]], dtype=float))
     pi_recovered = stationary_from_transition(Q)
     np.testing.assert_allclose(pi_recovered, pi_expected, atol=1e-8)
 

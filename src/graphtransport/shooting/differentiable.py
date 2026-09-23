@@ -18,7 +18,7 @@ solves -- the RK4 flow along the step schedule the shot took -- not merely
 for its continuous limit, so they agree with finite differences of the
 returned values.
 
-Inputs are normalised by their pi-mass inside the graph, so a gradient is
+Inputs are normalized by their pi-mass inside the graph, so a gradient is
 defined in every direction and the derivative along a pure rescaling of a
 density is zero. Tensors are float64 on the CPU.
 
@@ -56,7 +56,7 @@ def _torch_potential(G: MarkovGraph, z: torch.Tensor) -> torch.Tensor:
 class _LogMapPotential(torch.autograd.Function):
     """z* = the reduced initial potential of the geodesic from nu to target,
     with an implicit-function-theorem backward. nu and target must be
-    probability densities w.r.t. G.pi (the caller normalises them)."""
+    probability densities w.r.t. G.pi (the caller normalizes them)."""
 
     @staticmethod
     def forward(ctx, nu, target, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
@@ -65,8 +65,18 @@ class _LogMapPotential(torch.autograd.Function):
         # With segments > 1 z* comes from multiple shooting; the backward's
         # Jacobian is still single shooting's at z*, which is exact: both solve
         # the same discrete problem.
-        r = log_map(G, nu.detach().numpy(), target.detach().numpy(), tol=tol, maxiters=maxiters, nsteps=nsteps,
-                    floor_rtol=floor_rtol, verbose=verbose, phi0_init=phi0_init, segments=segments)  # fmt: skip
+        r = log_map(
+            G,
+            nu.detach().numpy(),
+            target.detach().numpy(),
+            tol=tol,
+            maxiters=maxiters,
+            nsteps=nsteps,
+            floor_rtol=floor_rtol,
+            verbose=verbose,
+            phi0_init=phi0_init,
+            segments=segments,
+        )
         z = torch.as_tensor(r.phi0[: G.n - 1], dtype=_DTYPE)
         ctx.save_for_backward(nu.detach(), z)
         ctx.G, ctx.nsteps, ctx.floor_val = G, nsteps, rho_floor(G, rtol=floor_rtol)
@@ -74,8 +84,11 @@ class _LogMapPotential(torch.autograd.Function):
 
     @staticmethod
     @torch.autograd.function.once_differentiable
-    def backward(ctx, z_bar):
+    def backward(ctx, *grad_outputs):  # pyright: ignore[reportIncompatibleMethodOverride]
+        # (once_differentiable returns an untyped wrapper; this is torch's documented pattern)
         from graphtransport.shooting.explog import _shoot, _shooting_jacobian
+
+        (z_bar,) = grad_outputs
 
         nu, z = ctx.saved_tensors
         G, n = ctx.G, ctx.G.n
@@ -112,33 +125,53 @@ def _torch_replay_path(G: MarkovGraph, rho, phi, schedule):
     return torch.stack(rho_path, dim=1), torch.stack(phi_path, dim=1)
 
 
-def _normalise(G: MarkovGraph, rho: torch.Tensor) -> torch.Tensor:
+def _normalize(G: MarkovGraph, rho: torch.Tensor) -> torch.Tensor:
     return rho / (rho @ torch.as_tensor(G.pi, dtype=_DTYPE))
 
 
 def _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
-    a, b = _normalise(G, rhoA), _normalise(G, rhoB)
+    a, b = _normalize(G, rhoA), _normalize(G, rhoB)
     z = _LogMapPotential.apply(a, b, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     return a, _torch_potential(G, z)
 
 
-def transport_cost_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
-                                  tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6,
-                                  verbose: bool = False, phi0_init=None, segments="auto") -> torch.Tensor:
+def transport_cost_shooting_torch(
+    G: MarkovGraph,
+    rhoA: torch.Tensor,
+    rhoB: torch.Tensor,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    floor_rtol: float = 1e-6,
+    verbose: bool = False,
+    phi0_init=None,
+    segments="auto",
+) -> torch.Tensor:
     """W2 between rhoA and rhoB (densities w.r.t. G.pi, float64 tensors) by
     shooting, as a 0-d tensor differentiable to first order (see the module
-    docstring)."""  # fmt: skip
+    docstring)."""
     a, phi0 = _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     return 2 * _torch_hamiltonian(G, a, phi0)
 
 
-def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
-                            tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6, verbose: bool = False,
-                            phi0_init=None, segments="auto"):
+def geodesic_shooting_torch(
+    G: MarkovGraph,
+    rhoA: torch.Tensor,
+    rhoB: torch.Tensor,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    floor_rtol: float = 1e-6,
+    verbose: bool = False,
+    phi0_init=None,
+    segments="auto",
+):
     """The shooting geodesic as a GeodesicSolution of differentiable tensors:
     W2, the density and potential paths, the momenta and the endpoint
     potentials all carry gradients back to rhoA and rhoB, to first order (see
-    the module docstring). Same conventions as geodesic_shooting."""  # fmt: skip
+    the module docstring). Same conventions as geodesic_shooting."""
     from graphtransport.api import GeodesicSolution
 
     t0 = time.perf_counter()
@@ -149,5 +182,6 @@ def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tens
     rho_t, phi_t = rho_path[:, :-1], phi_path[:, :-1]
     m = G.mean.torch_theta(rho_t[x], rho_t[y]) * (phi_t[x] - phi_t[y])
     W2 = 2 * _torch_hamiltonian(G, a, phi0)
-    return GeodesicSolution(W2, rho_path, m, m[:, 0], -2 * phi0, 2 * phi_path[:, -1], "converged",
-                            time.perf_counter() - t0)  # fmt: skip
+    return GeodesicSolution(
+        W2, rho_path, m, m[:, 0], -2 * phi0, 2 * phi_path[:, -1], "converged", time.perf_counter() - t0
+    )

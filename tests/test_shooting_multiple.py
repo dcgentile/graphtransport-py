@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 import torch
 
 from graphtransport import MarkovGraph, analysis, barycenter, geodesic, grid_markov_chain, transport_cost
@@ -122,7 +121,7 @@ def test_the_long_transport_agrees_with_the_socp(long_pair, long_solves):
     G, A, B = long_pair
     W2 = long_solves[1].W2
     socp10, socp40 = (geodesic(G, A, B, method="socp", N=N).W2 for N in (10, 40))
-    # the SOCP's time-discretisation error shrinks towards the shooting value
+    # the SOCP's time-discretization error shrinks towards the shooting value
     assert abs(socp40 - W2) < abs(socp10 - W2) < 1.0
     assert socp40 == pytest.approx(W2, rel=1e-3)
 
@@ -149,8 +148,9 @@ def test_barycenter_and_analysis_take_segments():
     assert info["method"] == "shooting"
     assert J3 == pytest.approx(J1, rel=1e-8)
     np.testing.assert_allclose(nu3, nu1, atol=1e-6)
-    np.testing.assert_allclose(analysis(G, nu3, refs, segments=3, fallback=False),
-                               analysis(G, nu3, refs, fallback=False), atol=1e-8)  # fmt: skip
+    np.testing.assert_allclose(
+        analysis(G, nu3, refs, segments=3, fallback=False), analysis(G, nu3, refs, fallback=False), atol=1e-8
+    )
 
 
 def test_gradients_through_multiple_shooting_are_exact():
