@@ -225,8 +225,10 @@ def test_log_map_matches_julia_on_long_transports(case):
         return rho / (rho @ G.pi)
 
     W2, iters = JULIA_LONG_TRANSPORT_LOG_MAP[case]
-    r = log_map(G, bump((0, 0)), bump((shift, shift)))
+    r = log_map(G, bump((0, 0)), bump((shift, shift)), segments=1)  # single shooting, as Julia's
     assert r.W2 == pytest.approx(W2, rel=1e-12)
+    # the default ("auto") switches to multiple shooting on these, and reaches the same W2
+    assert log_map(G, bump((0, 0)), bump((shift, shift))).W2 == pytest.approx(W2, rel=1e-11)
     # Julia's count, give or take the last iteration: the final residual can
     # land either side of tol (CI once stopped the 16x16 at 27 with residual
     # 6.4e-10 < 1e-9, where Julia and local runs take 28), from last-bit

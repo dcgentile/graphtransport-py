@@ -46,7 +46,7 @@ not speed. Seconds per geodesic on n x n grids (one torch thread, best of
 two runs, after cvxpy's first-call overhead), for near-uniform densities and
 for Gaussian bumps in opposite corners:
 
-| nodes | near-uniform: shooting | SOCP N=10 | SOCP N=40 | corner bumps: shooting | SOCP N=10 | SOCP N=40 |
+| nodes | near-uniform: single shooting | SOCP N=10 | SOCP N=40 | corner bumps: single shooting | SOCP N=10 | SOCP N=40 |
 |---|---|---|---|---|---|---|
 | 9 | 0.34 | 0.01 | 0.03 | 1.1 | 0.01 | 0.03 |
 | 25 | 0.37 | 0.04 | 0.49 | 1.5 | 0.04 | 0.51 |
@@ -66,6 +66,8 @@ for Gaussian bumps in opposite corners:
   the time step setting the error.
 - Shooting's cost depends on the data, not just the graph: on 256 nodes,
   6.4 s for near-uniform densities and 71 s for the corner bumps.
+  The default `segments="auto"` halves the bumps' figure (see multiple
+  shooting, below).
 
 For large graphs, long transports, or data near the boundary, pass
 `method="socp"`.
@@ -73,19 +75,28 @@ For large graphs, long transports, or data near the boundary, pass
 **Multiple shooting.** `segments=K` (every entry point, and the torch path)
 splits [0, 1] into K segments and solves for the state at every junction
 together. It solves the same discrete problem as single shooting, so the
-answers agree to Newton's tolerance; what changes is the cost. Seconds per
-geodesic on the same grids:
+answers agree to Newton's tolerance; what changes is the cost. On a long
+transport Newton needs fewer steps; on a short one each step costs more (a
+Jacobian carries about twice the tangents) and single shooting wins.
 
-| nodes | near-uniform: K=1 | K=2 | K=4 | K=8 | corner bumps: K=1 | K=2 | K=4 | K=8 |
-|---|---|---|---|---|---|---|---|---|
-| 64 | 0.50 | 0.58 | 0.63 | 0.66 | 2.8 | 2.1 | 1.6 | 1.3 |
-| 100 | 0.75 | 1.1 | 1.2 | 1.4 | 5.0 | 4.2 | 3.2 | 3.1 |
-| 144 | 1.5 | 2.2 | 2.6 | 2.8 | 11 | 9.3 | 10 | 6.5 |
-| 256 | 5.4 | 9.4 | 11 | 12 | 71 | 46 | 52 | 32 |
+The default, `segments="auto"`, chooses per problem: it takes one
+single-shooting step, and if the line search had to cut that step to a
+quarter or less -- the signature of a long transport -- it switches to K=8.
+Seconds per geodesic (one torch thread; "halfway" is a corner bump to the
+grid's centre):
 
-On long transports it takes fewer Newton steps and wins (2.2x at K=8 on
-256 nodes); on short ones each step costs more -- a Jacobian carries about
-twice the tangents -- and single shooting wins. The default is K=1.
+| data | nodes | single (`segments=1`) | `"auto"` | `segments=8` |
+|---|---|---|---|---|
+| near-uniform | 144 | 1.5 | 1.4 | 3.1 |
+| near-uniform | 256 | 5.9 | 6.1 | 13 |
+| halfway | 144 | 7.1 | 6.2 | 5.6 |
+| halfway | 256 | 31 | 26 | 24 |
+| corner bumps | 144 | 11 | 7.0 | 6.4 |
+| corner bumps | 256 | 70 | 35 | 33 |
+
+Auto matches single shooting on short transports and comes within 5-10% of
+the best fixed K on long ones (the one diagnostic step). Pass `segments=1`
+for single shooting throughout, as in the Julia package.
 
 ### Differentiable geodesics
 
