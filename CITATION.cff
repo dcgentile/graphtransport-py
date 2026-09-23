@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the paper it implements."
+message: "If you use this software, please cite the paper it builds on."
 title: graphtransport
 abstract: "Optimal transport on graphs: geodesics, distances, barycenters and barycentric coordinates under the discrete transport metric, differentiable with PyTorch."
 type: software

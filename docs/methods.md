@@ -7,10 +7,10 @@ All three methods take the same call and differ in `method=` and its keywords.
   (`nsteps=150`). It needs no conic solver, works with
   every admissible mean, and is [differentiable](differentiable.md). Every
   density must be strictly positive.
-- **`"socp"`** discretises time into `N` steps and solves one second-order cone
+- **`"socp"`** discretizes time into `N` steps and solves one second-order cone
   program (cvxpy + Clarabel, `graphtransport[socp]`). It takes densities that are
   zero on part of the graph, and its barycenter is the global optimum of its
-  discretisation, the reference for the others. Its time error is first order,
+  discretization, the reference for the others. Its time error is first order,
   \(O(1/N)\).
 - **`"sinkhorn"`** is entropically regularised transport for a ground cost you
   pass in (`cost=`, `epsilon=`). It computes a different object, and it blurs.

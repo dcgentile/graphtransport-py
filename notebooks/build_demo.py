@@ -98,7 +98,7 @@ All three methods take the same call and differ only in `method=` and its keywor
 
 - **`"shooting"`** (default) solves the problem exactly in time by Newton shooting on the Hamiltonian
   flow. It needs no optional dependency, but every density must be strictly positive.
-- **`"socp"`** discretises time into `N` steps and solves a second-order cone program with cvxpy. It
+- **`"socp"`** discretizes time into `N` steps and solves a second-order cone program with cvxpy. It
   handles densities that are zero on part of the graph, and its error is O(1/N).
 - **`"sinkhorn"`** is entropically regularised OT for a ground cost, which you pass in. It computes
   a different quantity: its `W2` is the cost under `cost=`, not the graph transport distance."""),
@@ -114,7 +114,7 @@ for name, kw in runs.items():
     sols[name] = gt.geodesic(G, A, B, **kw)
     print(f"{name:12s} W2 = {sols[name].W2:8.4f}   {time.perf_counter() - t0:5.2f} s")"""),
     md("""The SOCP converges to shooting's value as `N` grows. Sinkhorn's number is on a different scale
-(`ground_cost` normalises the squared hop distance to [0, 1]), and at time ½ its path is blurred."""),
+(`ground_cost` normalizes the squared hop distance to [0, 1]), and at time ½ its path is blurred."""),
     code("""mid = {name: s.rho[:, s.rho.shape[1] // 2] for name, s in sols.items()}
 show(list(mid.values()), list(mid.keys()))"""),
     md("""A keyword that belongs to a different method is rejected by name, with a hint about what to use
@@ -188,7 +188,7 @@ different mean."""),
     print(f"{mean!r:20s} W = {gt.transport_cost(G.with_mean(mean), A, B):.4f}")"""),
     md("""## Barycenters and analysis
 
-`barycenter` minimises $J(\\nu) = \\sum_i \\lambda_i W^2(\\rho_i, \\nu)$ and returns `(nu, J, info)`.
+`barycenter` minimizes $J(\\nu) = \\sum_i \\lambda_i W^2(\\rho_i, \\nu)$ and returns `(nu, J, info)`.
 `info["method"]` records which method actually produced the result."""),
     code("""refs, lam = [A, B, C], np.array([0.5, 0.3, 0.2])
 nu, J, info = gt.barycenter(G, refs, lam)
@@ -199,7 +199,7 @@ make the target a barycenter of the references. On the barycenter we just comput
 weights we started from."""),
     code("""gt.analysis(G, nu, refs)"""),
     md("""Shooting's barycenter is computed by gradient descent. The SOCP solves the same problem to its
-global optimum of its discretisation, so it serves as the reference. The two agree up to the SOCP's O(1/N) time error:"""),
+global optimum of its discretization, so it serves as the reference. The two agree up to the SOCP's O(1/N) time error:"""),
     code("""nu_socp, J_socp, _ = gt.barycenter(G, refs, lam, method="socp")
 print(f"J: shooting {J:.4f}, socp {J_socp:.4f}   max |nu - nu_socp| = {np.abs(nu - nu_socp).max():.1e}")"""),
     md("""## Densities that touch zero
@@ -260,34 +260,30 @@ for i in range(m):
             continue
         square[i, j], _, _ = gt.barycenter(G16, [d for d, u in zip(digits, used) if u], lam[used], method="socp", N=12)
 print(f"{m * m - 4} barycenters in {time.perf_counter() - t0:.0f} s")"""),
-    md("""Each corner digit gets a color, and each barycenter is drawn in the same weighted mix of those
-colors. The color is only a label: what is transported is the intensity. The digits are drawn
-centered, on top of one another, so the mass only has to move locally. The in-between shapes
-therefore look more like a cross-fade than a slide."""),
-    code("""corner_colors = np.array([[0.85, 0.25, 0.2], [0.2, 0.5, 0.85], [0.95, 0.7, 0.1], [0.3, 0.7, 0.35]])
-fig, axes = plt.subplots(m, m, figsize=(6, 6), facecolor="black")
+    md("""The digits are drawn centered, on top of one another, so the mass only has to move locally.
+The in-between shapes therefore look more like a cross-fade than a slide."""),
+    code("""fig, axes = plt.subplots(m, m, figsize=(6, 6))
+vmax = max(float(rho.max()) for rho in square.values())
 for (i, j), rho in square.items():
-    s, t = i / (m - 1), j / (m - 1)
-    lam = np.array([(1 - s) * (1 - t), (1 - s) * t, s * (1 - t), s * t])
-    axes[i, j].imshow((rho / rho.max()).reshape(k, k)[..., None] * (lam @ corner_colors), origin="lower")
+    axes[i, j].imshow(rho.reshape(k, k), origin="lower", cmap="viridis", vmin=0, vmax=vmax)
     axes[i, j].axis("off")
 plt.show()"""),
     md("""## Differentiable geodesics
 
 `geodesic` and `transport_cost` take torch tensors. With shooting, gradients flow back to both endpoints,
 exactly for the discrete problem the solver solves. Here gradient descent on softmax logits moves a
-density, starting from uniform, toward the bump `B` by minimising the transport distance itself:"""),
+density, starting from uniform, toward the bump `B` by minimizing the transport distance itself:"""),
     code("""pi = torch.tensor(G.pi)
 target = torch.tensor(B)
 logits = torch.zeros(G.n, dtype=torch.float64, requires_grad=True)
-optimiser = torch.optim.Adam([logits], lr=0.3)
+optimizer = torch.optim.Adam([logits], lr=0.3)
 history = []
 for step in range(30):
-    optimiser.zero_grad()
+    optimizer.zero_grad()
     rho = torch.softmax(logits, 0) / pi  # a density with respect to pi
     W = gt.transport_cost(G, rho, target)
     W.backward()
-    optimiser.step()
+    optimizer.step()
     history.append(W.item())
 print(f"W: {history[0]:.3f} at the start, {history[-1]:.3f} after {len(history)} steps")
 show([np.ones(G.n), (torch.softmax(logits, 0) / pi).detach().numpy(), B], ["start", "after 30 steps", "target B"])"""),

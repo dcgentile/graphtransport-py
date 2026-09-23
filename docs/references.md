@@ -1,6 +1,6 @@
 # References
 
-The literature behind each part of the package. The first section is the work it implements.
+The literature behind each part of the package. The first section is the work it builds on.
 
 ## This package
 

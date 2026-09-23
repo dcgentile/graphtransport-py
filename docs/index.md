@@ -2,9 +2,8 @@
 
 Optimal transport on graphs, in Python: geodesics, distances, barycenters and
 barycentric coordinates for densities on the nodes of a graph, under the
-discrete transport metric of Maas and of Chow, Huang, Li and Zhou. It
-implements the methods of
-[Gentile & Murphy (2026)](https://arxiv.org/abs/2603.26940) (see
+discrete transport metric of Maas and of Chow, Huang, Li and Zhou. It builds
+on [Gentile & Murphy (2026)](https://arxiv.org/abs/2603.26940) (see
 [References](references.md)), and began as a port of the Julia package
 [GraphTransportation.jl](https://github.com/dcgentile/GraphTransportation.jl),
 and its numerics are cross-checked against it.
@@ -50,7 +49,7 @@ is `rho * G.pi`.
 |---|---|
 | `geodesic(G, rhoA, rhoB)` | the transport path: `W2`, the densities `rho`, momenta `m`, endpoint potentials |
 | `transport_cost(G, rhoA, rhoB)` | the distance \(W(\rho_A, \rho_B)\) |
-| `barycenter(G, refs, lam)` | the minimiser of \(\sum_i \lambda_i W^2(\rho_i, \nu)\) |
+| `barycenter(G, refs, lam)` | the minimizer of \(\sum_i \lambda_i W^2(\rho_i, \nu)\) |
 | `analysis(G, target, refs)` | the weights that make `target` a barycenter of `refs` |
 
 Each takes `method=`: `"shooting"` (the default), `"socp"` or `"sinkhorn"`; see
