@@ -62,11 +62,15 @@ def barycenter_socp(
     objective = h * sum(float(lam[i]) * blk["action"] for i, blk in blocks)
     problem = cp.Problem(cp.Minimize(objective), constraints)
     status = solve_conic(
-        problem, solver, "barycenter_socp", check=check, verbose=verbose,
+        problem,
+        solver,
+        "barycenter_socp",
+        check=check,
+        verbose=verbose,
         hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate. The joint "
-             "program is len(lam > 0) times the size of one geodesic.",
+        "program is len(lam > 0) times the size of one geodesic.",
         **solver_kwargs,
-    )  # fmt: skip
+    )
     solvetime = float(problem.solver_stats.solve_time or 0.0)
 
     # A failed solve leaves every .value at None; report NaN of the right shape
@@ -87,7 +91,7 @@ def barycenter_socp(
                 status,
                 solvetime,
                 i,
-            )  # fmt: skip
+            )
         )
     nu_value = np.full(G.n, np.nan) if nu.value is None else np.asarray(nu.value, dtype=float)
     J = _objective_value(problem)

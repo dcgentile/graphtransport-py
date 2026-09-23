@@ -106,11 +106,28 @@ def _check_method(method: str, table: dict, what: str):
 # owned by none (verbose, compute_condition, a solver's own options) are left
 # to the method's signature.
 METHOD_KEYWORDS = {
-    "shooting": frozenset({"nsteps", "tol", "maxiters", "phi0_init", "phi0_inits", "floor_rtol", "h", "ftol",
-                           "log_tol", "log_maxiters", "init", "qp_method", "qp_solver", "fallback", "segments"}),
+    "shooting": frozenset(
+        {
+            "nsteps",
+            "tol",
+            "maxiters",
+            "phi0_init",
+            "phi0_inits",
+            "floor_rtol",
+            "h",
+            "ftol",
+            "log_tol",
+            "log_maxiters",
+            "init",
+            "qp_method",
+            "qp_solver",
+            "fallback",
+            "segments",
+        }
+    ),
     "socp": frozenset({"N", "solver", "check", "convention", "qp_method", "qp_solver"}),
     "sinkhorn": frozenset({"N", "cost", "epsilon", "iters", "tol", "alpha0"}),
-}  # fmt: skip
+}
 
 
 def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
@@ -142,8 +159,12 @@ def _shooting_entry_keywords(what: str) -> frozenset:
 
     from graphtransport.shooting import analyze_shooting, barycenter_shooting, geodesic_shooting
 
-    target = {"geodesic": geodesic_shooting, "transport_cost": _transport_cost_shooting,
-              "barycenter": barycenter_shooting, "analysis": analyze_shooting}[what]  # fmt: skip
+    target = {
+        "geodesic": geodesic_shooting,
+        "transport_cost": _transport_cost_shooting,
+        "barycenter": barycenter_shooting,
+        "analysis": analyze_shooting,
+    }[what]
     params = inspect.signature(target).parameters.values()
     return frozenset(p.name for p in params if p.kind is p.KEYWORD_ONLY) | _SHOOTING_WRAPPER_KEYWORDS
 
@@ -159,8 +180,12 @@ def _check_shooting_kwargs(what: str, kwargs: dict) -> None:
 
 # The keyword that sets each entry point's log-map Newton budget, for the
 # advice on a solve that ran out of iterations.
-_NEWTON_BUDGET = {"geodesic": "maxiters", "transport_cost": "maxiters", "barycenter": "log_maxiters",
-                  "analysis": "maxiters"}  # fmt: skip
+_NEWTON_BUDGET = {
+    "geodesic": "maxiters",
+    "transport_cost": "maxiters",
+    "barycenter": "log_maxiters",
+    "analysis": "maxiters",
+}
 
 
 # Input checks shared by every method. They live in the public entry points,
@@ -481,8 +506,18 @@ def _transport_cost_shooting(
         a = _check_shooting_density(G, rhoA, "rhoA", floor_rtol)
         b = _check_shooting_density(G, rhoB, "rhoB", floor_rtol)
         with _explain_shooting_failure("transport_cost", rhoA=a, rhoB=b):
-            return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                           floor_rtol=floor_rtol, segments=segments, verbose=verbose).W2  # fmt: skip
+            return log_map(
+                G,
+                a,
+                b,
+                nsteps=nsteps,
+                tol=tol,
+                maxiters=maxiters,
+                phi0_init=phi0_init,
+                floor_rtol=floor_rtol,
+                segments=segments,
+                verbose=verbose,
+            ).W2
 
     return _with_fallback("transport_cost", fallback, run, lambda: float(_geodesic_socp(G, rhoA, rhoB).W2))
 
@@ -554,8 +589,17 @@ def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
     import torch
 
     as_t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64)  # noqa: E731
-    return GeodesicSolution(as_t(sol.W2), as_t(sol.rho), as_t(sol.m), as_t(sol.m0), as_t(sol.phi0),
-                            as_t(sol.phi1), sol.status, sol.solvetime, sol.ref_index)  # fmt: skip
+    return GeodesicSolution(
+        as_t(sol.W2),
+        as_t(sol.rho),
+        as_t(sol.m),
+        as_t(sol.m0),
+        as_t(sol.phi0),
+        as_t(sol.phi1),
+        sol.status,
+        sol.solvetime,
+        sol.ref_index,
+    )
 
 
 @overload
@@ -566,7 +610,7 @@ def _torch_geodesic(
 def _torch_geodesic(
     G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: Literal[True]
 ) -> torch.Tensor: ...
-def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):  # fmt: skip
+def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):
     """geodesic / transport_cost for torch inputs: a GeodesicSolution of
     tensors, or (cost_only) the tensor W2."""
     import torch
@@ -611,8 +655,7 @@ def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what:
         try:
             return run()
         except (_NotInterior, ShootingError) as exc:
-            note = (f"{exc} (No fallback to method='socp': the inputs require grad, and the SOCP is not "
-                    "differentiable.)")  # fmt: skip
+            note = f"{exc} (No fallback to method='socp': the inputs require grad, and the SOCP is not differentiable.)"
             if isinstance(exc, _NotInterior):
                 raise _NotInterior(note, exc.summary) from exc
             raise ShootingError(note) from exc

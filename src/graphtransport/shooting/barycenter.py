@@ -73,7 +73,7 @@ def barycenter_shooting(
     more than the default 50. ``segments`` > 1 solves each log map by multiple
     shooting (shooting.multiple), warm-started from the previous iteration's
     potential as single shooting is.
-    """  # fmt: skip
+    """
     h = _positive_float(h, "h")
     tol = _positive_float(tol, "tol")
     ftol = _positive_float(ftol, "ftol", allow_zero=True)

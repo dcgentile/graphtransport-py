@@ -148,8 +148,9 @@ def test_barycenter_and_analysis_take_segments():
     assert info["method"] == "shooting"
     assert J3 == pytest.approx(J1, rel=1e-8)
     np.testing.assert_allclose(nu3, nu1, atol=1e-6)
-    np.testing.assert_allclose(analysis(G, nu3, refs, segments=3, fallback=False),
-                               analysis(G, nu3, refs, fallback=False), atol=1e-8)  # fmt: skip
+    np.testing.assert_allclose(
+        analysis(G, nu3, refs, segments=3, fallback=False), analysis(G, nu3, refs, fallback=False), atol=1e-8
+    )
 
 
 def test_gradients_through_multiple_shooting_are_exact():

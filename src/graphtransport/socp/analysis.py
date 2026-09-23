@@ -55,10 +55,14 @@ def analyze_socp(
 
     if convention == "potential":
         return potential_gram_qp(
-            G, target, [geo.phi0 for geo in geodesics],
-            compute_condition=compute_condition, return_system=return_system, method=qp_method,
+            G,
+            target,
+            [geo.phi0 for geo in geodesics],
+            compute_condition=compute_condition,
+            return_system=return_system,
+            method=qp_method,
             solver=qp_solver,
-        )  # fmt: skip
+        )
 
     tangent_vectors = []
     for geo in geodesics:

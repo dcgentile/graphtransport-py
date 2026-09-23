@@ -301,8 +301,11 @@ def test_a_long_transport_converges_without_falling_back():
 
 def test_running_out_of_iterations_names_both_causes_not_the_boundary():
     G, A, B = _long_transport_pair()
-    with pytest.raises(ShootingError, match=r"did not converge in 2 iterations.*smallest input density is "
-                                            r"3\.7e-01, in rhoA\. .*maxiters=") as info:  # fmt: skip
+    with pytest.raises(
+        ShootingError,
+        match=r"did not converge in 2 iterations.*smallest input density is "
+        r"3\.7e-01, in rhoA\. .*maxiters=",
+    ) as info:
         transport_cost(G, A, B, fallback=False, maxiters=2)
     assert "near the boundary" not in str(info.value)
 
@@ -334,8 +337,11 @@ def test_barycenter_takes_the_log_maps_newton_budget_as_log_maxiters(grid4):
     # barycenter's maxiters is the descent's; the log maps' budget is log_maxiters,
     # and the unreachable-reference error now carries the log map's own failure
     G, A, B, _ = grid4
-    with pytest.raises(ShootingError, match=r"not reachable.*The log map failed with: log_map: Newton did not "
-                                            r"converge in 0 iterations.*\(log_maxiters=, default 50\)"):  # fmt: skip
+    with pytest.raises(
+        ShootingError,
+        match=r"not reachable.*The log map failed with: log_map: Newton did not "
+        r"converge in 0 iterations.*\(log_maxiters=, default 50\)",
+    ):
         barycenter(G, [A, B], [0.5, 0.5], log_maxiters=0, fallback=False)
 
 

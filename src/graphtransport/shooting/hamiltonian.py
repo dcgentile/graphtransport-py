@@ -192,8 +192,12 @@ def _torch_edges(G: MarkovGraph):
         x, y = G.E[:, 0], G.E[:, 1]
         q_xy = np.asarray(G.Q[x, y], dtype=float).ravel()
         q_yx = np.asarray(G.Q[y, x], dtype=float).ravel()
-        cached = (torch.as_tensor(x), torch.as_tensor(y), torch.as_tensor(q_xy, dtype=_DTYPE),
-                  torch.as_tensor(q_yx, dtype=_DTYPE))  # fmt: skip
+        cached = (
+            torch.as_tensor(x),
+            torch.as_tensor(y),
+            torch.as_tensor(q_xy, dtype=_DTYPE),
+            torch.as_tensor(q_yx, dtype=_DTYPE),
+        )
         G.__dict__["_torch_edges"] = cached
     return cached
 
@@ -268,10 +272,12 @@ def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
 def _torch_rk4_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, h: float):
     """One RK4 step of the state and, linearized, of the tangent block."""
     k1r, k1p, l1r, l1p = _torch_flow_tangent(G, rho, phi, d_rho, d_phi)
-    k2r, k2p, l2r, l2p = _torch_flow_tangent(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p,
-                                             d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p)  # fmt: skip
-    k3r, k3p, l3r, l3p = _torch_flow_tangent(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p,
-                                             d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p)  # fmt: skip
+    k2r, k2p, l2r, l2p = _torch_flow_tangent(
+        G, rho + (h / 2) * k1r, phi + (h / 2) * k1p, d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p
+    )
+    k3r, k3p, l3r, l3p = _torch_flow_tangent(
+        G, rho + (h / 2) * k2r, phi + (h / 2) * k2p, d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p
+    )
     k4r, k4p, l4r, l4p = _torch_flow_tangent(G, rho + h * k3r, phi + h * k3p, d_rho + h * l3r, d_phi + h * l3p)
     rho_next = rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r)
     phi_next = phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
@@ -342,13 +348,14 @@ def _torch_integrate(
 def _torch_integrate(
     G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ..., *, path: Literal[True]
 ) -> tuple[torch.Tensor, torch.Tensor, list, tuple[torch.Tensor, torch.Tensor]]: ...
-def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4,
-                     path: bool = False):  # fmt: skip
+def _torch_integrate(
+    G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4, path: bool = False
+):
     """Run the flow from tensors (rho, phi) over [0, T] in nsteps steps, without
     autodiff. Returns (rho_end, phi_end, schedule, paths): schedule[i] is the
     list of step lengths that step i was taken in (one entry unless it was
     bisected), and paths is (rho_path, phi_path), each (n, nsteps + 1), if
-    ``path`` else None."""  # fmt: skip
+    ``path`` else None."""
     _warn_about_threads()
     schedule = []
     rho_path, phi_path = [rho], [phi]
@@ -389,7 +396,7 @@ def integrate_hamiltonian(
     Raises PositivityFloorError if a density would fall below
     ``rho_floor(G, rtol=floor_rtol)`` even after ``max_halvings`` bisections
     of the offending step. Callers are expected to catch it and fall back.
-    """  # fmt: skip
+    """
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     if not np.isfinite(T) or T <= 0:
@@ -405,6 +412,7 @@ def integrate_hamiltonian(
         raise ValueError(f"phi0 must have shape ({G.n},), got {phi.shape}")
     if not np.all(np.isfinite(phi)):
         raise ValueError("phi0 has non-finite entries")
-    _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val,
-                                                     max_halvings, path=True)  # fmt: skip
+    _, _, _, (rho_path, phi_path) = _torch_integrate(
+        G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val, max_halvings, path=True
+    )
     return rho_path.numpy(), phi_path.numpy()

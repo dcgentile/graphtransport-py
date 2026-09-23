@@ -330,14 +330,18 @@ class QuadLogMean(AdmissibleMean):
     def torch_partial_s_grad(self, s, t):
         a, w = self._torch_nodes(s)
         s_, t_ = s[..., None], t[..., None]
-        return ((w * a * (a - 1) * s_ ** (a - 2) * t_ ** (1 - a)).sum(dim=-1),
-                (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1))  # fmt: skip
+        return (
+            (w * a * (a - 1) * s_ ** (a - 2) * t_ ** (1 - a)).sum(dim=-1),
+            (w * a * (1 - a) * s_ ** (a - 1) * t_ ** (-a)).sum(dim=-1),
+        )
 
     def _torch_nodes(self, like):
         import torch
 
-        return (torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
-                torch.as_tensor(self.w, dtype=like.dtype, device=like.device))  # fmt: skip
+        return (
+            torch.as_tensor(self.alpha, dtype=like.dtype, device=like.device),
+            torch.as_tensor(self.w, dtype=like.dtype, device=like.device),
+        )
 
     def __repr__(self) -> str:
         return f"QuadLogMean({self.K})"

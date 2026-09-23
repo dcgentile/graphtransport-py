@@ -213,7 +213,7 @@ def exp_map(
 
     Raises PositivityFloorError rather than returning garbage if the flow hits
     the positivity floor before time ``t``.
-    """  # fmt: skip
+    """
     n, n_edges = G.n, G.E.shape[0]
     # Checked first: the momentum branch solves a Laplacian at nu, and a
     # boundary nu there surfaces as "the graph is disconnected".
@@ -293,9 +293,19 @@ def _log_map_multiple(
         if not np.all(np.isfinite(phi0)):
             raise ValueError("phi0_init has non-finite entries")
         init = initial_states_from_potential(G, nu, _gauge(G, phi0), segments, nsteps, floor_val)
-    rho_s, phi_s, iters, r = solve_multiple_shooting(G, nu, target, segments=segments, nsteps=nsteps, tol=tol,
-                                                     maxiters=maxiters, floor_val=floor_val, verbose=verbose,
-                                                     init=init, give_up_early=give_up_early)  # fmt: skip
+    rho_s, phi_s, iters, r = solve_multiple_shooting(
+        G,
+        nu,
+        target,
+        segments=segments,
+        nsteps=nsteps,
+        tol=tol,
+        maxiters=maxiters,
+        floor_val=floor_val,
+        verbose=verbose,
+        init=init,
+        give_up_early=give_up_early,
+    )
     phi0 = phi_s[:, 0]
     m0 = metric_tensor(G, nu) * graph_gradient(G, phi0)
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r, (rho_s, phi_s))
@@ -366,7 +376,7 @@ def log_map(
     ``tol`` after ``maxiters`` steps, the line search fails, or no admissible
     initial potential exists; the SOCP is the fallback in every case, or
     log_map_mollified for data near the boundary.
-    """  # fmt: skip
+    """
     if not np.isfinite(tol) or tol <= 0:
         raise ValueError(f"tol must be positive and finite, got {tol!r}")
     if isinstance(maxiters, bool) or not isinstance(maxiters, (int, np.integer)) or maxiters < 0:
@@ -374,8 +384,9 @@ def log_map(
     if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)) or nsteps < 1:
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     auto = isinstance(segments, str) and segments == "auto"
-    if not auto and (isinstance(segments, bool) or not isinstance(segments, (int, np.integer))
-                     or not 1 <= int(segments) <= nsteps):  # fmt: skip
+    if not auto and (
+        isinstance(segments, bool) or not isinstance(segments, (int, np.integer)) or not 1 <= int(segments) <= nsteps
+    ):
         raise ValueError(f"segments must be 'auto' or an integer between 1 and nsteps ({nsteps}), got {segments!r}")
     fixed_segments = None if auto else int(segments)
     floor_val = rho_floor(G, rtol=floor_rtol)
@@ -393,8 +404,9 @@ def log_map(
     target = target / (target @ G.pi)
 
     if fixed_segments is not None and fixed_segments > 1:
-        return _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol,
-                                 fixed_segments, verbose)  # fmt: skip
+        return _log_map_multiple(
+            G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, fixed_segments, verbose
+        )
 
     n = G.n
     sqrt_pi = np.sqrt(G.pi)
@@ -479,8 +491,20 @@ def log_map(
                 # heavily damped step the single trajectory ends far from the target, and
                 # its junction states started K=8 about 40% more Newton steps from the
                 # target (12x12 corner bumps: 10 against 7).
-                result = _log_map_multiple(G, nu, target, None, tol, maxiters - iters, nsteps, floor_val, floor_rtol, K,
-                                           verbose, give_up_early=True)  # fmt: skip
+                result = _log_map_multiple(
+                    G,
+                    nu,
+                    target,
+                    None,
+                    tol,
+                    maxiters - iters,
+                    nsteps,
+                    floor_val,
+                    floor_rtol,
+                    K,
+                    verbose,
+                    give_up_early=True,
+                )
             except ShootingError:
                 # multiple shooting could not take it (or was stalling, and gave up early);
                 # single shooting carries on from its first step
@@ -527,7 +551,7 @@ def analyze_shooting(
     recovered only to O(h) in the SOCP's time step, not to solver tolerance.
 
     Returns lam_hat, or (lam_hat, A) with return_system=True.
-    """  # fmt: skip
+    """
     from graphtransport.gram import potential_gram_qp
 
     if isinstance(refs, np.ndarray) and refs.ndim != 1:
@@ -556,9 +580,14 @@ def analyze_shooting(
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(
-        G, target, potentials, compute_condition=compute_condition, return_system=return_system,
-        method=qp_method, solver=qp_solver,
-    )  # fmt: skip
+        G,
+        target,
+        potentials,
+        compute_condition=compute_condition,
+        return_system=return_system,
+        method=qp_method,
+        solver=qp_solver,
+    )
 
 
 def log_map_mollified(
@@ -581,7 +610,7 @@ def log_map_mollified(
     often *more* accurate than the extrapolation: the mollification error
     decays faster than sqrt(eps). Both are returned so they can be compared.
     ``tol`` defaults to a looser 1e-7; the rest of ``kwargs`` go to log_map.
-    """  # fmt: skip
+    """
     levels = sorted((float(e) for e in epsilons), reverse=True)
     if len(set(levels)) < 2:
         # Coincident levels make the fit rank-deficient, and lstsq answers that
@@ -603,9 +632,13 @@ def log_map_mollified(
     for eps in levels:
         try:
             level = log_map(
-                G, mollify(nu, eps), mollify(target, eps),
-                phi0_init=None if result is None else result.phi0, tol=tol, **kwargs,
-            )  # fmt: skip
+                G,
+                mollify(nu, eps),
+                mollify(target, eps),
+                phi0_init=None if result is None else result.phi0,
+                tol=tol,
+                **kwargs,
+            )
         except (ShootingError, PositivityFloorError) as exc:
             warnings.warn(
                 f"log_map_mollified: shooting failed at epsilon={eps:g}, skipping this level ({exc})", stacklevel=2

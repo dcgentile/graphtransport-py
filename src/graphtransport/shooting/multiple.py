@@ -76,10 +76,11 @@ def initial_states_from_potential(
 ):
     """Segment start states (rho_starts, phi_starts), each (n, segments), from
     one sweep of the flow from (nu, phi0): the warm start from a single-shooting
-    potential. None if the sweep hits the positivity floor."""  # fmt: skip
+    potential. None if the sweep hits the positivity floor."""
     try:
-        _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(nu), _as_tensor(phi0), nsteps, 1.0,
-                                                         floor_val, path=True)  # fmt: skip
+        _, _, _, (rho_path, phi_path) = _torch_integrate(
+            G, _as_tensor(nu), _as_tensor(phi0), nsteps, 1.0, floor_val, path=True
+        )
     except PositivityFloorError:
         return None
     starts = np.concatenate([[0], np.cumsum(segment_steps(nsteps, segments))[:-1]])
@@ -129,8 +130,9 @@ class _System:
             raise PositivityFloorError("a junction density is at or below the positivity floor")
         R, schedules = [], []
         for k in range(K):
-            rho_e, phi_e, schedule, _ = _torch_integrate(G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]),
-                                                         self.steps[k], self.T[k], self.floor_val)  # fmt: skip
+            rho_e, phi_e, schedule, _ = _torch_integrate(
+                G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]), self.steps[k], self.T[k], self.floor_val
+            )
             schedules.append(schedule)
             rho_e, phi_e = rho_e.numpy(), phi_e.numpy()
             if k < K - 1:
@@ -163,8 +165,9 @@ class _System:
             else:
                 col0 = m + 2 * m * (k - 1)
                 d_rho, d_phi = torch.cat([self.lift, zero], dim=1), torch.cat([zero, self.lift], dim=1)
-            _, _, d_rho_e, d_phi_e = _torch_replay_tangent(G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]),
-                                                           d_rho, d_phi, schedules[k])  # fmt: skip
+            _, _, d_rho_e, d_phi_e = _torch_replay_tangent(
+                G, _as_tensor(rho_s[:, k]), _as_tensor(phi_s[:, k]), d_rho, d_phi, schedules[k]
+            )
             d_rho_e, d_phi_e = d_rho_e.numpy(), d_phi_e.numpy()
             if k < K - 1:
                 d_gauge = d_phi_e - (G.pi @ d_phi_e) / G.pi.sum()
@@ -212,7 +215,7 @@ def solve_multiple_shooting(
     fixed; the flow's potential drifts by a constant along a segment, so a
     continuous potential path is obtained by adding that drift back (see
     geodesic_shooting). Raises ShootingError on failure.
-    """  # fmt: skip
+    """
     from graphtransport.shooting.explog import ShootingError, solve_weighted_laplacian
 
     n, K = G.n, segments
@@ -224,10 +227,12 @@ def solve_multiple_shooting(
     if init is None:
         rho_starts = np.column_stack([(1 - t) * nu + t * target for t in t_start])
         rho_ends = np.column_stack([rho_starts[:, 1:], target])
-        phi_starts = np.column_stack([
-            solve_weighted_laplacian(G, rho_starts[:, k], G.pi * (rho_ends[:, k] - rho_starts[:, k])) / T[k]
-            for k in range(K)
-        ])  # fmt: skip
+        phi_starts = np.column_stack(
+            [
+                solve_weighted_laplacian(G, rho_starts[:, k], G.pi * (rho_ends[:, k] - rho_starts[:, k])) / T[k]
+                for k in range(K)
+            ]
+        )
     else:
         rho_starts, phi_starts = (np.array(a, dtype=float) for a in init)
         if rho_starts.shape != (n, K) or phi_starts.shape != (n, K):

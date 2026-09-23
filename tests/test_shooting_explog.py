@@ -276,8 +276,10 @@ def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
     exact = explog._shooting_jacobian(G, nu_t, z, schedule)
     h, eye = 1e-6, np.eye(n - 1)
     for j in range(n - 1):
-        (up, s_up), (down, s_down) = (explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
-                                      explog._shoot(G, nu_t, z - h * eye[j], 150, floor))  # fmt: skip
+        (up, s_up), (down, s_down) = (
+            explog._shoot(G, nu_t, z + h * eye[j], 150, floor),
+            explog._shoot(G, nu_t, z - h * eye[j], 150, floor),
+        )
         assert s_up == schedule and s_down == schedule
         central = (up.numpy() - down.numpy())[: n - 1] / (2 * h)
         np.testing.assert_allclose(exact[:, j], central, atol=1e-7 * np.abs(exact).max())

@@ -118,10 +118,16 @@ def geodesic_block(G: MarkovGraph, N: int, h: float, left, right) -> dict:
 
     action = cp.sum(G.kappa @ w)
     return {
-        "rho": rho, "m": m, "theta": theta, "w": w,
-        "c_left": c_left, "c_right": c_right, "c_cont": c_cont,
-        "constraints": constraints, "action": action,
-    }  # fmt: skip
+        "rho": rho,
+        "m": m,
+        "theta": theta,
+        "w": w,
+        "c_left": c_left,
+        "c_right": c_right,
+        "c_cont": c_cont,
+        "constraints": constraints,
+        "action": action,
+    }
 
 
 def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
@@ -170,14 +176,22 @@ def geodesic_socp(
     blk = geodesic_block(G, N, h, rhoA, rhoB)
     problem = cp.Problem(cp.Minimize(h * blk["action"]), blk["constraints"])
     status = solve_conic(
-        problem, solver, "geodesic_socp", check=check, verbose=verbose,
+        problem,
+        solver,
+        "geodesic_socp",
+        check=check,
+        verbose=verbose,
         hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate.",
         **solver_kwargs,
-    )  # fmt: skip
+    )
     rho = _value(blk["rho"], (G.n, N + 1))
     m = _value(blk["m"], (G.E.shape[0], N))
     return GeodesicSolution(
         _objective_value(problem),
-        rho, m, m[:, 0].copy(),
-        *endpoint_potentials(G, blk), status, float(problem.solver_stats.solve_time or 0.0),
-    )  # fmt: skip
+        rho,
+        m,
+        m[:, 0].copy(),
+        *endpoint_potentials(G, blk),
+        status,
+        float(problem.solver_stats.solve_time or 0.0),
+    )

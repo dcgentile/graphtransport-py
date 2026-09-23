@@ -44,7 +44,7 @@ def geodesic_shooting(
     amplifies the error in phi0 the same way single shooting's Newton system
     does. The potential's constant drift along each segment is carried across
     the junctions, so phi is continuous and phi1 matches single shooting's.
-    """  # fmt: skip
+    """
     t0 = time.perf_counter()
     r = log_map(
         G,
@@ -60,17 +60,24 @@ def geodesic_shooting(
     )
     if r.starts is None:
         rhoA = np.asarray(rhoA, dtype=float)
-        rho_path, phi_path = integrate_hamiltonian(G, rhoA / (rhoA @ G.pi), r.phi0, nsteps=nsteps,
-                                                   floor_rtol=floor_rtol)  # fmt: skip
+        rho_path, phi_path = integrate_hamiltonian(
+            G, rhoA / (rhoA @ G.pi), r.phi0, nsteps=nsteps, floor_rtol=floor_rtol
+        )
     else:
         rho_path, phi_path = _stitch_segments(G, r.starts, nsteps, floor_rtol)
     x, y = G.E[:, 0], G.E[:, 1]
     rho_t, phi_t = rho_path[:, :-1], phi_path[:, :-1]
     m = G.mean(rho_t[x], rho_t[y]) * (phi_t[x] - phi_t[y])
     return GeodesicSolution(
-        r.W2, rho_path, m, m[:, 0].copy(), -2 * r.phi0, 2 * phi_path[:, -1], "converged",
+        r.W2,
+        rho_path,
+        m,
+        m[:, 0].copy(),
+        -2 * r.phi0,
+        2 * phi_path[:, -1],
+        "converged",
         time.perf_counter() - t0,
-    )  # fmt: skip
+    )
 
 
 def _stitch_segments(G: MarkovGraph, starts, nsteps: int, floor_rtol: float):
@@ -84,8 +91,9 @@ def _stitch_segments(G: MarkovGraph, starts, nsteps: int, floor_rtol: float):
     rho_path, phi_path = [rho_s[:, [0]]], [phi_s[:, [0]]]
     shift = 0.0
     for k, steps in enumerate(segment_steps(nsteps, rho_s.shape[1])):
-        rho_k, phi_k = integrate_hamiltonian(G, rho_s[:, k], phi_s[:, k] + shift, nsteps=steps, T=steps / nsteps,
-                                             floor_rtol=floor_rtol)  # fmt: skip
+        rho_k, phi_k = integrate_hamiltonian(
+            G, rho_s[:, k], phi_s[:, k] + shift, nsteps=steps, T=steps / nsteps, floor_rtol=floor_rtol
+        )
         rho_path.append(rho_k[:, 1:])
         phi_path.append(phi_k[:, 1:])
         if k + 1 < rho_s.shape[1]:

@@ -142,8 +142,14 @@ def test_second_order_gradients_raise_rather_than_return_wrong_values(grid4):
 def test_other_methods_refuse_inputs_that_require_grad(grid4):
     a, b = _pair(grid4, 11)
     with pytest.raises(TypeError, match="method='shooting' only.*'sinkhorn' is not differentiable"):
-        transport_cost(grid4, torch.tensor(a, requires_grad=True), torch.tensor(b), method="sinkhorn",
-                       cost=ground_cost(grid4), epsilon=0.1)  # fmt: skip
+        transport_cost(
+            grid4,
+            torch.tensor(a, requires_grad=True),
+            torch.tensor(b),
+            method="sinkhorn",
+            cost=ground_cost(grid4),
+            epsilon=0.1,
+        )
 
 
 def test_other_methods_run_on_tensors_without_grad(grid4):

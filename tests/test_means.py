@@ -182,8 +182,7 @@ def test_torch_partial_s_is_the_derivative_of_torch_theta(theta: AdmissibleMean)
     s, t = _pairs(300, seed=4)  # away from the extreme ratios, where autodiff of theta itself cancels
     S = torch.tensor(s, requires_grad=True)
     (grad,) = torch.autograd.grad(theta.torch_theta(S, torch.tensor(t)).sum(), S)
-    np.testing.assert_allclose(grad.numpy(), theta.torch_partial_s(torch.tensor(s), torch.tensor(t)).numpy(),
-                               rtol=1e-9)  # fmt: skip
+    np.testing.assert_allclose(grad.numpy(), theta.torch_partial_s(torch.tensor(s), torch.tensor(t)).numpy(), rtol=1e-9)
 
 
 @pytest.mark.parametrize("theta", MEANS, ids=repr)
