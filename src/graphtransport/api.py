@@ -35,7 +35,7 @@ import re
 import sys
 import time
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
@@ -588,17 +588,9 @@ def _as_float64_tensor(value, name: str):
 def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
     import torch
 
-    as_t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64)  # noqa: E731
-    return GeodesicSolution(
-        as_t(sol.W2),
-        as_t(sol.rho),
-        as_t(sol.m),
-        as_t(sol.m0),
-        as_t(sol.phi0),
-        as_t(sol.phi1),
-        sol.status,
-        sol.solvetime,
-        sol.ref_index,
+    arrays = {f: getattr(sol, f) for f in ("W2", "rho", "m", "m0", "phi0", "phi1")}
+    return replace(
+        sol, **{f: torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64) for f, a in arrays.items()}
     )
 
 
@@ -688,10 +680,10 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     steps, default 150; rho then has nsteps + 1 columns), ``tol``,
     ``maxiters``, ``phi0_init``, ``segments`` (default "auto": single
     shooting, switching to multiple shooting on a long transport; an integer
-    fixes it -- see shooting.log_map and the README), ``verbose``. Honors every AdmissibleMean, including the exact
-    LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
-    the two methods' potentials are directly comparable; status is
-    "converged".
+    fixes it -- see shooting.log_map), ``verbose``. Honors every
+    AdmissibleMean, including the exact LogarithmicMean. phi0 and phi1 use
+    the SOCP's W2-gradient convention, so the two methods' potentials are
+    directly comparable; status is "converged".
 
     method="socp": a single second-order-cone program
     (socp.geodesic_socp). Handles any densities, including boundary-supported

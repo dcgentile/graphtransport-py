@@ -69,14 +69,14 @@ def geodesic_shooting(
     rho_t, phi_t = rho_path[:, :-1], phi_path[:, :-1]
     m = G.mean(rho_t[x], rho_t[y]) * (phi_t[x] - phi_t[y])
     return GeodesicSolution(
-        r.W2,
-        rho_path,
-        m,
-        m[:, 0].copy(),
-        -2 * r.phi0,
-        2 * phi_path[:, -1],
-        "converged",
-        time.perf_counter() - t0,
+        W2=r.W2,
+        rho=rho_path,
+        m=m,
+        m0=m[:, 0].copy(),
+        phi0=-2 * r.phi0,
+        phi1=2 * phi_path[:, -1],
+        status="converged",
+        solvetime=time.perf_counter() - t0,
     )
 
 

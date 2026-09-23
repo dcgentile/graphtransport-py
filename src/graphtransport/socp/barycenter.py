@@ -67,8 +67,10 @@ def barycenter_socp(
         "barycenter_socp",
         check=check,
         verbose=verbose,
-        hint="Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate. The joint "
-        "program is len(lam > 0) times the size of one geodesic.",
+        hint=(
+            "Try a smaller N, fewer QuadLogMean nodes, or check=False to inspect the iterate. The joint "
+            "program is len(lam > 0) times the size of one geodesic."
+        ),
         **solver_kwargs,
     )
     solvetime = float(problem.solver_stats.solve_time or 0.0)

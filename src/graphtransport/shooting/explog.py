@@ -278,7 +278,7 @@ def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndar
 
 
 def _log_map_multiple(
-    G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose, give_up_early=False
+    G, nu, target, *, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose, give_up_early=False
 ):
     """log_map by multiple shooting (shooting.multiple). A phi0_init is used
     as a warm start by sweeping the flow from it once and taking the states at
@@ -313,11 +313,13 @@ def _log_map_multiple(
 
 # segments="auto": after single shooting's first Newton step, switch to
 # multiple shooting with _AUTO_SEGMENTS segments if the line search had to cut
-# that step to _AUTO_SWITCH_STEP or less. On grid transports the first step
-# separates the cases: short ones (near-uniform densities) take full steps,
-# long ones (corner to corner) steps of 1/8 or less. K=8 was the fastest fixed
-# K on long transports, and every K > 1 was slower on short ones (the timings
-# are in the documentation's "Choosing a method").
+# that step to _AUTO_SWITCH_STEP or less. On n x n grids (n = 5-12) the first
+# step sorts transports: short ones (near-uniform densities) take a full step,
+# medium ones (a corner bump to the center) 1/8-1/2, long ones (corner to
+# corner) 1/16-1/8. The threshold sits inside the medium band, so every long
+# transport switches and no short one does. K=8 was the fastest fixed K on long
+# transports, and every K > 1 was slower on short ones (the timings are in the
+# documentation's "Choosing a method").
 _AUTO_SWITCH_STEP = 0.25
 _AUTO_SEGMENTS = 8
 
@@ -367,7 +369,8 @@ def log_map(
     answer agrees with single shooting's to Newton's tolerance; what changes
     is the cost. A long transport needs fewer Newton steps -- 8 at K=4 against
     19 for 10x10 corner bumps -- but each step carries about twice the
-    tangents, so a short transport costs more (see the README's table). A
+    tangents, so a short transport costs more (the documentation's "Choosing a
+    method" has the timings). A
     ``phi0_init`` warm-starts it by one sweep of the flow, cut at the segment
     starts; if that sweep hits the positivity floor, the default start is
     used. The result's ``starts`` holds the solved segment start states.
@@ -405,7 +408,17 @@ def log_map(
 
     if fixed_segments is not None and fixed_segments > 1:
         return _log_map_multiple(
-            G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, fixed_segments, verbose
+            G,
+            nu,
+            target,
+            phi0_init=phi0_init,
+            tol=tol,
+            maxiters=maxiters,
+            nsteps=nsteps,
+            floor_val=floor_val,
+            floor_rtol=floor_rtol,
+            segments=fixed_segments,
+            verbose=verbose,
         )
 
     n = G.n
@@ -495,14 +508,14 @@ def log_map(
                     G,
                     nu,
                     target,
-                    None,
-                    tol,
-                    maxiters - iters,
-                    nsteps,
-                    floor_val,
-                    floor_rtol,
-                    K,
-                    verbose,
+                    phi0_init=None,
+                    tol=tol,
+                    maxiters=maxiters - iters,
+                    nsteps=nsteps,
+                    floor_val=floor_val,
+                    floor_rtol=floor_rtol,
+                    segments=K,
+                    verbose=verbose,
                     give_up_early=True,
                 )
             except ShootingError:
