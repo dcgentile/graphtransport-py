@@ -1,0 +1,7 @@
+# Mechanical reformatting, skipped by `git blame --ignore-revs-file .git-blame-ignore-revs`
+# (GitHub's blame view applies this file automatically).
+
+# Adopt ruff format
+1dcb6c735bdf0ece19741b752a153fb3dbfe5d07
+# Format: drop the per-line fmt: skip opt-outs
+5113a312eac597119ab0913e985e3839334e7db7

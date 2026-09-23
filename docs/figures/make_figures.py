@@ -23,13 +23,13 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
-from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.colors import LinearSegmentedColormap
 
-import graphtransport as gt  # noqa: E402
+import graphtransport as gt
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets"
