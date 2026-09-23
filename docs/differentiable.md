@@ -10,7 +10,8 @@ import graphtransport as gt
 
 G = gt.MarkovGraph(*gt.grid_markov_chain(5))
 pi = torch.tensor(G.pi)
-target = torch.linspace(0.5, 1.5, G.n, dtype=torch.float64)
+xy = torch.tensor([(i % 5, i // 5) for i in range(G.n)], dtype=torch.float64)
+target = torch.exp(-((xy - 4) ** 2).sum(1) / 2) + 0.05  # a bump in the corner
 target = target / (target @ pi)
 
 logits = torch.zeros(G.n, dtype=torch.float64, requires_grad=True)

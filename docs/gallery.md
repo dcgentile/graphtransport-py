@@ -20,7 +20,9 @@ smoothed between nodes).</figcaption>
 <figcaption>The corners are four 16×16 digit images, densities on the pixel grid.
 Every other panel is their barycenter, for weights bilinear in the panel's
 position, by the SOCP. Colour is only a label: each corner digit has a hue, and
-each barycenter shows the same weighted mix.</figcaption>
+each barycenter shows the same weighted mix. The digits are centred on top of one
+another, so mass only moves locally, and the in-between panels look more like a
+cross-fade than a slide.</figcaption>
 </figure>
 
 ## Three methods, one transport

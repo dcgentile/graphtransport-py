@@ -9,8 +9,24 @@ description = "Optimal transport on graphs: geodesics, distances and barycenters
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
+readme = "README.md"
+authors = [{ name = "David Gentile" }]
+keywords = ["optimal transport", "Wasserstein", "graphs", "barycenters", "Markov chains", "PyTorch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
 # torch is the shooting solver's autodiff: the exact Jacobian of the Hamiltonian flow
 dependencies = ["numpy", "scipy", "torch"]
+
+[project.urls]
+Documentation = "https://dcgentile.github.io/graphtransport-py/"
+Source = "https://github.com/dcgentile/graphtransport-py"
+Paper = "https://arxiv.org/abs/2603.26940"
+"Julia package" = "https://github.com/dcgentile/GraphTransportation.jl"
 
 [project.optional-dependencies]
 dev = ["pytest"]

@@ -1,5 +1,5 @@
 """The discrete transport barycenter by Riemannian gradient descent with
-exact-in-time geodesics. Ported from the `:shooting` branch of
+shooting geodesics (fourth-order in time). Ported from the `:shooting` branch of
 GraphTransportation.jl's API.jl (`_barycenter_shooting`)."""
 
 from __future__ import annotations
@@ -41,7 +41,8 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     history is monotone. The step h is halved on a positivity-floor hit, an
     unreachable reference or an increase of J, and doubled back toward its
     initial value after an accepted step. The descent is first order, so it
-    converges linearly; barycenter_socp remains the certificate.
+    converges linearly; barycenter_socp, the global optimum of its
+    discretisation, remains the reference.
 
     Returns (nu, J, info), info = {"iters", "status", "J_hist", "grad_hist",
     "h"}: the objective and the Riemannian gradient norm per iteration

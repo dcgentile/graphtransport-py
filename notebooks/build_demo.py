@@ -158,7 +158,7 @@ axes[0].set_ylabel("seconds per geodesic")
 axes[0].legend()
 plt.show()"""),
     md("""On these sizes the SOCP at its default `N=10` is the fastest method for both kinds of data.
-Shooting costs more when mass has to travel further. What shooting offers is exactness in time, no conic
+Shooting costs more when mass has to travel further. What shooting offers is fourth-order accuracy in time, no conic
 solver, and gradients (below), not speed. For large graphs or long transports, pass `method="socp"`."""),
     md("""## Multiple shooting
 
@@ -199,7 +199,7 @@ make the target a barycenter of the references. On the barycenter we just comput
 weights we started from."""),
     code("""gt.analysis(G, nu, refs)"""),
     md("""Shooting's barycenter is computed by gradient descent. The SOCP solves the same problem to its
-global optimum, so it serves as the certificate. The two agree up to the SOCP's O(1/N) time error:"""),
+global optimum of its discretisation, so it serves as the reference. The two agree up to the SOCP's O(1/N) time error:"""),
     code("""nu_socp, J_socp, _ = gt.barycenter(G, refs, lam, method="socp")
 print(f"J: shooting {J:.4f}, socp {J_socp:.4f}   max |nu - nu_socp| = {np.abs(nu - nu_socp).max():.1e}")"""),
     md("""## Densities that touch zero
@@ -302,7 +302,7 @@ The subpackages expose the individual pieces:
 - `graphtransport.socp`: `geodesic_socp`, `barycenter_socp`
 - `graphtransport.sinkhorn`: the entropic core, with PyTorch and JAX backends for autograd
 
-See the README's *Choosing a method* for how the methods compare in cost as the graph grows."""),
+See [choosing a method](https://dcgentile.github.io/graphtransport-py/methods/) for how the methods compare in cost as the graph grows."""),
 ]
 
 nb = new_notebook(cells=cells, metadata={

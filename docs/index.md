@@ -2,8 +2,10 @@
 
 Optimal transport on graphs, in Python: geodesics, distances, barycenters and
 barycentric coordinates for densities on the nodes of a graph, under the
-discrete transport metric of Maas and of Erbar, Rumpf, Schmitzer & Simon.
-It began as a port of the Julia package
+discrete transport metric of Maas and of Chow, Huang, Li and Zhou. It
+implements the methods of
+[Gentile & Murphy (2026)](https://arxiv.org/abs/2603.26940) (see
+[References](references.md)), and began as a port of the Julia package
 [GraphTransportation.jl](https://github.com/dcgentile/GraphTransportation.jl),
 and its numerics are cross-checked against it.
 
