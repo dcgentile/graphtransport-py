@@ -181,6 +181,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev,socp]"
 pytest                   # about 4 minutes; pytest -m "" adds the slow Julia cross-checks
+pip install ruff pyright  # then: ruff check . && ruff format --check . && pyright (CI's lint job)
 ```
 
 The documentation site builds with `pip install -e ".[docs]" && mkdocs serve`.
