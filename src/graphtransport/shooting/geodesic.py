@@ -13,9 +13,19 @@ from graphtransport.shooting.explog import log_map
 from graphtransport.shooting.hamiltonian import integrate_hamiltonian
 
 
-def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                      phi0_init=None, floor_rtol: float = 1e-6, segments="auto",
-                      verbose: bool = False) -> GeodesicSolution:
+def geodesic_shooting(
+    G: MarkovGraph,
+    rhoA,
+    rhoB,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    phi0_init=None,
+    floor_rtol: float = 1e-6,
+    segments="auto",
+    verbose: bool = False,
+) -> GeodesicSolution:
     """The geodesic from rhoA to rhoB: Newton shooting on the Hamiltonian flow
     (log_map) for the initial potential, then the flow integrated to produce
     the path. Fourth-order in time (RK4's truncation error), and requires both
@@ -36,8 +46,18 @@ def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: flo
     the junctions, so phi is continuous and phi1 matches single shooting's.
     """  # fmt: skip
     t0 = time.perf_counter()
-    r = log_map(G, rhoA, rhoB, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
-                floor_rtol=floor_rtol, segments=segments, verbose=verbose)
+    r = log_map(
+        G,
+        rhoA,
+        rhoB,
+        nsteps=nsteps,
+        tol=tol,
+        maxiters=maxiters,
+        phi0_init=phi0_init,
+        floor_rtol=floor_rtol,
+        segments=segments,
+        verbose=verbose,
+    )
     if r.starts is None:
         rhoA = np.asarray(rhoA, dtype=float)
         rho_path, phi_path = integrate_hamiltonian(G, rhoA / (rhoA @ G.pi), r.phi0, nsteps=nsteps,

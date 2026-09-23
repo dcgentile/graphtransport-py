@@ -12,8 +12,7 @@ try:
     import torch
 except ImportError as exc:  # pragma: no cover - exercised only without torch
     raise ImportError(
-        "graphtransport.sinkhorn.backends.torch_backend requires PyTorch; "
-        "install it with `pip install torch`"
+        "graphtransport.sinkhorn.backends.torch_backend requires PyTorch; install it with `pip install torch`"
     ) from exc
 
 from graphtransport.sinkhorn.core import _check_epsilon, _check_problem, _underflow_error

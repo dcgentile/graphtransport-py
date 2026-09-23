@@ -48,6 +48,7 @@ from graphtransport.shooting.hamiltonian import (
 
 logger = logging.getLogger(__name__)
 
+
 class ShootingError(RuntimeError):
     """log_map could not solve the shooting problem: Newton did not converge,
     the line search failed, or no admissible initial potential was found.
@@ -199,8 +200,9 @@ def _gauge(G: MarkovGraph, phi: np.ndarray) -> np.ndarray:
     return phi - (phi @ G.pi) / G.pi.sum()
 
 
-def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, kind: str = "auto",
-            floor_rtol: float = 1e-6) -> np.ndarray:
+def exp_map(
+    G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, kind: str = "auto", floor_rtol: float = 1e-6
+) -> np.ndarray:
     """The Riemannian exponential map at ``nu``: integrate the Hamiltonian flow
     from (nu, phi0) for time ``t`` and return the endpoint density.
 
@@ -220,7 +222,9 @@ def exp_map(G: MarkovGraph, nu, tangent, *, t: float = 1.0, nsteps: int = 150, k
     if kind == "auto":
         length = tangent.shape[0] if tangent.ndim == 1 else -1
         if length not in (n, n_edges):
-            raise ValueError(f"tangent has shape {tangent.shape}; expected ({n},) (potential) or ({n_edges},) (momentum)")
+            raise ValueError(
+                f"tangent has shape {tangent.shape}; expected ({n},) (potential) or ({n_edges},) (momentum)"
+            )
         if n == n_edges:
             raise ValueError(
                 f"n == |E| == {n}, so the kind of the tangent cannot be inferred from its length; "
@@ -273,8 +277,9 @@ def _shooting_jacobian(G: MarkovGraph, nu: torch.Tensor, z, schedule) -> np.ndar
     return d_rho1[: n - 1].numpy()
 
 
-def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose,
-                      give_up_early=False):
+def _log_map_multiple(
+    G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol, segments, verbose, give_up_early=False
+):
     """log_map by multiple shooting (shooting.multiple). A phi0_init is used
     as a warm start by sweeping the flow from it once and taking the states at
     the segment starts; if that sweep hits the floor, the default start is used."""
@@ -307,9 +312,19 @@ _AUTO_SWITCH_STEP = 0.25
 _AUTO_SEGMENTS = 8
 
 
-def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
-            nsteps: int = 150, floor_rtol: float = 1e-6, segments: int | str = "auto",
-            verbose: bool = False) -> LogMapResult:
+def log_map(
+    G: MarkovGraph,
+    nu,
+    target,
+    *,
+    phi0_init=None,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    nsteps: int = 150,
+    floor_rtol: float = 1e-6,
+    segments: int | str = "auto",
+    verbose: bool = False,
+) -> LogMapResult:
     """The Riemannian logarithm of ``target`` at ``nu``, by single or multiple
     shooting.
 
@@ -480,10 +495,22 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     return LogMapResult(phi0, m0, 2 * hamiltonian(G, nu, phi0, floor_rtol=floor_rtol), iters, r)
 
 
-def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: float = 1e-9, maxiters: int = 50,
-                     segments="auto", phi0_inits=None, compute_condition: bool = False,
-                     return_system: bool = False, qp_method: str = "auto", qp_solver=None,
-                     floor_rtol: float = 1e-6):
+def analyze_shooting(
+    G: MarkovGraph,
+    target,
+    refs,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    segments="auto",
+    phi0_inits=None,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    qp_method: str = "auto",
+    qp_solver=None,
+    floor_rtol: float = 1e-6,
+):
     """The shooting analysis backend: like analyze_socp, but each reference's
     potential is log_map(G, target, ref).phi0 -- the Hamiltonian velocity
     potential at ``target`` -- instead of the SOCP's endpoint dual. The Gram
@@ -515,8 +542,17 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     if phi0_inits is not None and len(phi0_inits) != len(refs):
         raise ValueError(f"phi0_inits must have one entry per reference ({len(refs)}), got {len(phi0_inits)}")
     potentials = [
-        log_map(G, target, ref, nsteps=nsteps, tol=tol, maxiters=maxiters, floor_rtol=floor_rtol,
-                segments=segments, phi0_init=None if phi0_inits is None else phi0_inits[i]).phi0
+        log_map(
+            G,
+            target,
+            ref,
+            nsteps=nsteps,
+            tol=tol,
+            maxiters=maxiters,
+            floor_rtol=floor_rtol,
+            segments=segments,
+            phi0_init=None if phi0_inits is None else phi0_inits[i],
+        ).phi0
         for i, ref in enumerate(refs)
     ]
     return potential_gram_qp(
@@ -525,8 +561,9 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     )  # fmt: skip
 
 
-def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4), tol: float = 1e-7,
-                      **kwargs) -> MollifiedLogMapResult:
+def log_map_mollified(
+    G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4), tol: float = 1e-7, **kwargs
+) -> MollifiedLogMapResult:
     """log_map for endpoints with zero or near-zero entries, where shooting
     cannot run directly.
 
@@ -570,8 +607,9 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
                 phi0_init=None if result is None else result.phi0, tol=tol, **kwargs,
             )  # fmt: skip
         except (ShootingError, PositivityFloorError) as exc:
-            warnings.warn(f"log_map_mollified: shooting failed at epsilon={eps:g}, skipping this level ({exc})",
-                          stacklevel=2)
+            warnings.warn(
+                f"log_map_mollified: shooting failed at epsilon={eps:g}, skipping this level ({exc})", stacklevel=2
+            )
             continue
         result = level
         Ws.append(np.sqrt(level.W2))
@@ -581,6 +619,4 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
 
     X = np.column_stack([np.ones(len(used)), np.sqrt(used)])
     W0, a = np.linalg.lstsq(X, np.array(Ws), rcond=None)[0]
-    return MollifiedLogMapResult(
-        W0**2, W0, result.phi0, result.m0, (W0, a), np.array(used), np.array(Ws)
-    )
+    return MollifiedLogMapResult(W0**2, W0, result.phi0, result.m0, (W0, a), np.array(used), np.array(Ws))

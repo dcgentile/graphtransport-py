@@ -71,8 +71,9 @@ def _gauge(G: MarkovGraph, phi: np.ndarray) -> np.ndarray:
     return phi - (G.pi @ phi) / G.pi.sum()
 
 
-def initial_states_from_potential(G: MarkovGraph, nu: np.ndarray, phi0: np.ndarray, segments: int, nsteps: int,
-                                  floor_val: float):
+def initial_states_from_potential(
+    G: MarkovGraph, nu: np.ndarray, phi0: np.ndarray, segments: int, nsteps: int, floor_val: float
+):
     """Segment start states (rho_starts, phi_starts), each (n, segments), from
     one sweep of the flow from (nu, phi0): the warm start from a single-shooting
     potential. None if the sweep hits the positivity floor."""  # fmt: skip
@@ -115,8 +116,8 @@ class _System:
         phi_s[:, 0] = _full(G, x[:m], 0.0)
         for k in range(1, K):
             off = m + 2 * m * (k - 1)
-            rho_s[:, k] = _full(G, x[off:off + m], 1.0)
-            phi_s[:, k] = _full(G, x[off + m:off + 2 * m], 0.0)
+            rho_s[:, k] = _full(G, x[off : off + m], 1.0)
+            phi_s[:, k] = _full(G, x[off + m : off + 2 * m], 0.0)
         return rho_s, phi_s
 
     def residual(self, x):
@@ -177,8 +178,20 @@ class _System:
         )
 
 
-def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps: int, tol: float, maxiters: int,
-                            floor_val: float, verbose: bool = False, init=None, give_up_early: bool = False):
+def solve_multiple_shooting(
+    G: MarkovGraph,
+    nu,
+    target,
+    *,
+    segments: int,
+    nsteps: int,
+    tol: float,
+    maxiters: int,
+    floor_val: float,
+    verbose: bool = False,
+    init=None,
+    give_up_early: bool = False,
+):
     """Newton on the multiple-shooting system. nu and target must already be
     checked interior probability densities (log_map does that).
 
@@ -236,9 +249,7 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
             rho_s, phi_s = system.unpack(x)
             x = system.pack(rho_s, phi_s / 2)
     if R is None:
-        raise ShootingError(
-            f"log_map(segments={K}): no admissible initial state found. Fall back to method='socp'."
-        )
+        raise ShootingError(f"log_map(segments={K}): no admissible initial state found. Fall back to method='socp'.")
 
     r = r_start = norm(R)
     iters = 0

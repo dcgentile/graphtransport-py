@@ -16,8 +16,9 @@ from graphtransport.socp.geodesic import (
 from graphtransport.solvers import import_cvxpy, solve_conic
 
 
-def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, check: bool = True,
-                    verbose: bool = False, **solver_kwargs):
+def barycenter_socp(
+    G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, check: bool = True, verbose: bool = False, **solver_kwargs
+):
     """The discrete transport barycenter of the reference densities ``refs``
     with weights ``lam`` as a single joint second-order-cone program: one
     geodesic block per reference with lam_i > 0, all sharing a free right
@@ -78,7 +79,14 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
         geodesics.append(
             GeodesicSolution(
                 float(h * action) if action is not None else np.nan,
-                _value(blk["rho"], (G.n, N + 1)), m, m[:, 0].copy(), phi0, phi1, status, solvetime, i,
+                _value(blk["rho"], (G.n, N + 1)),
+                m,
+                m[:, 0].copy(),
+                phi0,
+                phi1,
+                status,
+                solvetime,
+                i,
             )  # fmt: skip
         )
     nu_value = np.full(G.n, np.nan) if nu.value is None else np.asarray(nu.value, dtype=float)

@@ -153,9 +153,7 @@ def test_log_map_against_the_socp(builder):
         prev = m_err
     # The SOCP's endpoint potential is the gradient of W2; the flow's phi0 is the
     # Hamiltonian velocity potential. In the continuum limit phi_socp = -2 phi0.
-    np.testing.assert_allclose(
-        graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05
-    )
+    np.testing.assert_allclose(graph_gradient(G, sol.phi0), -2 * graph_gradient(G, r.phi0), rtol=0.05)
 
 
 def test_log_map_two_node_closed_form():
@@ -350,7 +348,9 @@ def test_log_map_mollified_approximates_the_socp_on_boundary_data():
     assert r.W2 == pytest.approx(r.W**2)
 
 
-@pytest.mark.parametrize("epsilons, match", [((1e-2,), "at least two"), ((0.5, 1.5), r"\(0, 1\)"), ((0.1, 0.0), r"\(0, 1\)")])
+@pytest.mark.parametrize(
+    "epsilons, match", [((1e-2,), "at least two"), ((0.5, 1.5), r"\(0, 1\)"), ((0.1, 0.0), r"\(0, 1\)")]
+)
 def test_log_map_mollified_rejects_bad_levels(epsilons, match):
     G = MarkovGraph(*triangle_markov_chain())
     with pytest.raises(ValueError, match=match):

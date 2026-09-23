@@ -301,10 +301,13 @@ The subpackages expose the individual pieces:
 See [choosing a method](https://dcgentile.github.io/graphtransport-py/methods/) for how the methods compare in cost as the graph grows."""),
 ]
 
-nb = new_notebook(cells=cells, metadata={
-    "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
-    "language_info": {"name": "python"},
-})
+nb = new_notebook(
+    cells=cells,
+    metadata={
+        "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
+        "language_info": {"name": "python"},
+    },
+)
 if "--execute" in sys.argv:
     from nbclient import NotebookClient
 

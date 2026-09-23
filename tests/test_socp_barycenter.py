@@ -3,7 +3,14 @@ import pytest
 
 cp = pytest.importorskip("cvxpy")
 
-from graphtransport import ArithmeticMean, HarmonicMean, MarkovGraph, QuadLogMean, grid_markov_chain, triangle_markov_chain  # noqa: E402
+from graphtransport import (
+    ArithmeticMean,
+    HarmonicMean,
+    MarkovGraph,
+    QuadLogMean,
+    grid_markov_chain,
+    triangle_markov_chain,
+)  # noqa: E402
 from graphtransport.graph import graph_gradient  # noqa: E402
 from graphtransport.socp import analyze_socp, barycenter_socp, geodesic_socp  # noqa: E402
 

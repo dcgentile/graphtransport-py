@@ -31,8 +31,7 @@ try:
     import jax.numpy as jnp
 except ImportError as exc:  # pragma: no cover - exercised only without jax
     raise ImportError(
-        "graphtransport.sinkhorn.backends.jax_backend requires JAX; "
-        "install it with `pip install 'graphtransport[jax]'`"
+        "graphtransport.sinkhorn.backends.jax_backend requires JAX; install it with `pip install 'graphtransport[jax]'`"
     ) from exc
 
 from graphtransport.sinkhorn.core import _check_epsilon, _check_problem, _underflow_error

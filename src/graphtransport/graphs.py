@@ -51,16 +51,12 @@ def t_markov_chain():
 def double_t_markov_chain():
     """Two T-shaped graphs (nodes 0-3 and 4-7) joined at corresponding
     vertices: 0-4, 1-5, 2-6, 3-7."""
-    return markov_chain_from_edge_list(
-        [(0, 1), (1, 2), (1, 3), (0, 4), (1, 5), (2, 6), (3, 7), (4, 5), (5, 6), (5, 7)]
-    )
+    return markov_chain_from_edge_list([(0, 1), (1, 2), (1, 3), (0, 4), (1, 5), (2, 6), (3, 7), (4, 5), (5, 6), (5, 7)])
 
 
 def triangular_prism_markov_chain():
     """Two triangular faces (0-1-2 and 3-4-5) joined by three edges."""
-    return markov_chain_from_edge_list(
-        [(0, 1), (1, 2), (2, 0), (0, 3), (1, 4), (2, 5), (3, 4), (4, 5), (5, 3)]
-    )
+    return markov_chain_from_edge_list([(0, 1), (1, 2), (2, 0), (0, 3), (1, 4), (2, 5), (3, 4), (4, 5), (5, 3)])
 
 
 def cube_markov_chain():

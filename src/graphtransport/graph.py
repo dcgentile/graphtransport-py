@@ -21,7 +21,9 @@ from graphtransport.means import AdmissibleMean, GeometricMean
 
 def _check_mean(mean) -> AdmissibleMean:
     if not isinstance(mean, AdmissibleMean):
-        hint = f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        hint = (
+            f"; did you mean {mean.__name__}()?" if isinstance(mean, type) and issubclass(mean, AdmissibleMean) else ""
+        )
         raise TypeError(f"mean must be an AdmissibleMean instance, got {mean!r}{hint}")
     return mean
 
@@ -74,8 +76,7 @@ class MarkovGraph:
             scale = max(abs(kappa_ij), abs(kappa_ji), 1e-300)
             if abs(kappa_ij - kappa_ji) / scale > rtol:
                 raise ValueError(
-                    f"reversibility violated on edge ({i},{j}): "
-                    f"Q[i,j]*pi[i]={kappa_ij}, Q[j,i]*pi[j]={kappa_ji}"
+                    f"reversibility violated on edge ({i},{j}): Q[i,j]*pi[i]={kappa_ij}, Q[j,i]*pi[j]={kappa_ji}"
                 )
             edges.append((i, j))
             kappas.append(kappa_ij)

@@ -40,8 +40,7 @@ def _check_problem(measures_shape, n: int, coords_shape, iters) -> None:
     measures_shape, coords_shape = tuple(measures_shape), tuple(coords_shape)
     if len(measures_shape) != 2 or measures_shape[0] != n:
         raise ValueError(
-            f"measures must have shape (n, S) with one column per measure and n = {n} nodes, "
-            f"got {measures_shape}"
+            f"measures must have shape (n, S) with one column per measure and n = {n} nodes, got {measures_shape}"
         )
     S = measures_shape[1]
     if coords_shape != (S,):
@@ -217,7 +216,9 @@ def _loss_and_gradient(alpha, measures, target, cost, epsilon: float, iters: int
     return sqeuc_loss(p, target), lam * (w - lam @ w)
 
 
-def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options) -> np.ndarray:
+def simplex_regression(
+    measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options
+) -> np.ndarray:
     """Wasserstein barycentric coordinates of `target` with respect to the
     columns of `measures` (Bonneel, Peyré & Cuturi 2016, §4.3): minimize
     E_L(lambda) = 1/2 ||P^(L)(lambda) - target||^2 over the simplex by

@@ -310,8 +310,10 @@ def test_running_out_of_iterations_names_both_causes_not_the_boundary():
 def test_running_out_of_iterations_falls_back_with_the_real_error():
     pytest.importorskip("cvxpy")
     G, A, B = _long_transport_pair()
-    match = (r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
-             r"smallest input density 3\.7e-01, in rhoA\)")
+    match = (
+        r"did not converge \(log_map: Newton did not converge in 2 iterations \(residual [^)]+\); "
+        r"smallest input density 3\.7e-01, in rhoA\)"
+    )
     with pytest.warns(ShootingFallbackWarning, match=match) as record:
         w = transport_cost(G, A, B, maxiters=2)
     assert w == pytest.approx(transport_cost(G, A, B, method="socp"))
@@ -347,8 +349,11 @@ def test_the_fallback_warning_names_each_entry_points_budget(grid4):
 @pytest.mark.parametrize(
     "call, match",
     [
-        (lambda G, A, B: analysis(G, A, [A, B], log_maxiters=5), r"analysis\(method='shooting'\) does not take "
-                                                                 r"log_maxiters; it takes .*maxiters"),
+        (
+            lambda G, A, B: analysis(G, A, [A, B], log_maxiters=5),
+            r"analysis\(method='shooting'\) does not take "
+            r"log_maxiters; it takes .*maxiters",
+        ),
         (lambda G, A, B: barycenter(G, [A, B], [0.5, 0.5], phi0_init=A), r"barycenter.*does not take phi0_init"),
         (lambda G, A, B: geodesic(G, A, B, h=1.0), r"geodesic.*does not take h; it takes .*phi0_init"),
         (lambda G, A, B: transport_cost(G, A, B, init=A), r"transport_cost.*does not take init"),
@@ -404,7 +409,12 @@ def test_maxiters_warns_and_reports_it(grid4):
 
 @pytest.mark.parametrize(
     "kwargs, match",
-    [({"h": 0.0}, "h must"), ({"tol": -1.0}, "tol must"), ({"maxiters": 0}, "maxiters"), ({"log_tol": np.nan}, "log_tol")],
+    [
+        ({"h": 0.0}, "h must"),
+        ({"tol": -1.0}, "tol must"),
+        ({"maxiters": 0}, "maxiters"),
+        ({"log_tol": np.nan}, "log_tol"),
+    ],
 )
 def test_barycenter_rejects_bad_descent_parameters(grid4, kwargs, match):
     G, A, B, _ = grid4

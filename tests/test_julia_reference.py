@@ -88,7 +88,9 @@ def test_backward_pass_matches_julia():
     assert barycentric_loss(alpha, mu, q, cost, 0.1, iters=40) == pytest.approx(
         JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40, rel=1e-12
     )
-    np.testing.assert_allclose(loss_gradient(alpha, mu, q, cost, 0.1, iters=40), JULIA_LOSS_GRADIENT_ALPHA_ITERS40, rtol=1e-10)
+    np.testing.assert_allclose(
+        loss_gradient(alpha, mu, q, cost, 0.1, iters=40), JULIA_LOSS_GRADIENT_ALPHA_ITERS40, rtol=1e-10
+    )
     _, w = sinkhorn_differentiate([0.5, 0.3, 0.2], mu, q, cost, 0.1, 40)
     np.testing.assert_allclose(w, JULIA_W_LAMBDA_ITERS40, atol=1e-14)
 
@@ -109,9 +111,9 @@ def test_unified_api_matches_julia():
     assert sol.rho.shape == (9, 5)
     assert sol.W2 == pytest.approx(JULIA_API_GEO_W2, rel=1e-12)
     np.testing.assert_allclose(sol.rho[:, 2], JULIA_API_GEO_RHO_MID, rtol=1e-12)
-    assert transport_cost(G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1, N=4, iters=256) == pytest.approx(
-        JULIA_API_TRANSPORT_COST, rel=1e-12
-    )
+    assert transport_cost(
+        G, refs[0], refs[1], method="sinkhorn", cost=cost, epsilon=0.1, N=4, iters=256
+    ) == pytest.approx(JULIA_API_TRANSPORT_COST, rel=1e-12)
 
     lam_hat = analysis(G, nu, refs, method="sinkhorn", cost=cost, epsilon=0.1, iters=256)
     np.testing.assert_allclose(lam_hat, JULIA_API_ANALYSIS_LAMBDA, atol=1e-5)
@@ -156,9 +158,7 @@ def test_geodesic_socp_matches_julia():
             # tolerances relative to each quantity's own scale: m0 is O(30) and
             # the potentials O(10), so a fixed atol would mean different things
             want = np.asarray(want, dtype=float)
-            np.testing.assert_allclose(
-                got, want, atol=tol * max(1.0, np.abs(want).max()), err_msg=f"{name} {what}"
-            )
+            np.testing.assert_allclose(got, want, atol=tol * max(1.0, np.abs(want).max()), err_msg=f"{name} {what}")
 
         close(sol.rho[:, 2], ref["rho_mid"], 1e-4, "rho_mid")
         close(sol.m0, ref["m0"], 1e-4, "m0")
@@ -173,7 +173,11 @@ def test_barycenter_socp_matches_julia():
     # solvers' tolerance. lam_hat_momentum has no other test pinning it.
     pytest.importorskip("cvxpy")
     from graphtransport import (
-        ArithmeticMean, GeometricMean, HarmonicMean, QuadLogMean, triangle_markov_chain,
+        ArithmeticMean,
+        GeometricMean,
+        HarmonicMean,
+        QuadLogMean,
+        triangle_markov_chain,
     )
     from graphtransport.socp import analyze_socp, barycenter_socp
 
@@ -197,8 +201,10 @@ def test_barycenter_socp_matches_julia():
             analyze_socp(Gm, nu, refs, N=6), ref["lam_hat"], atol=1e-3, err_msg=f"{name} lam_hat"
         )
         np.testing.assert_allclose(
-            analyze_socp(Gm, nu, refs, N=6, convention="momentum"), ref["lam_hat_momentum"],
-            atol=1e-3, err_msg=f"{name} lam_hat_momentum",
+            analyze_socp(Gm, nu, refs, N=6, convention="momentum"),
+            ref["lam_hat_momentum"],
+            atol=1e-3,
+            err_msg=f"{name} lam_hat_momentum",
         )
 
 

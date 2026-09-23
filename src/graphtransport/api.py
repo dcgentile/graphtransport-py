@@ -294,8 +294,7 @@ def _analysis_sinkhorn(
     cost, epsilon = _require_sinkhorn_kwargs("analysis", cost, epsilon, G)
     if compute_condition or return_system:
         raise ValueError(
-            "analysis(method='sinkhorn') is not a Gram-matrix method; "
-            "compute_condition/return_system are not available"
+            "analysis(method='sinkhorn') is not a Gram-matrix method; compute_condition/return_system are not available"
         )
     mu = np.column_stack([r * G.pi for r in refs])
     return simplex_regression(mu, target * G.pi, cost, epsilon, iters=iters, alpha0=alpha0)
@@ -424,7 +423,9 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         if not fallback:
             raise
         if not cvxpy_available():
-            note = f"{exc} (The automatic fallback to method='socp' needs graphtransport[socp], which is not installed.)"
+            note = (
+                f"{exc} (The automatic fallback to method='socp' needs graphtransport[socp], which is not installed.)"
+            )
             if isinstance(exc, _NotInterior):
                 raise _NotInterior(note, exc.summary) from exc
             raise ShootingError(note) from exc
@@ -444,8 +445,9 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         return run_socp()
 
 
-def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, floor_rtol: float = 1e-6,
-                       **kwargs) -> GeodesicSolution:
+def _geodesic_shooting(
+    G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs
+) -> GeodesicSolution:
     from graphtransport.shooting import geodesic_shooting
 
     def run():
@@ -457,9 +459,20 @@ def _geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, flo
     return _with_fallback("geodesic", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB))
 
 
-def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = True, nsteps: int = 150,
-                             tol: float = 1e-9, maxiters: int = 50, phi0_init=None, floor_rtol: float = 1e-6,
-                             segments="auto", verbose: bool = False) -> float:
+def _transport_cost_shooting(
+    G: MarkovGraph,
+    rhoA,
+    rhoB,
+    *,
+    fallback: bool = True,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    phi0_init=None,
+    floor_rtol: float = 1e-6,
+    segments="auto",
+    verbose: bool = False,
+) -> float:
     """W2 from log_map alone: the path integration geodesic() adds is not
     needed. Takes geodesic's keywords, verbose included."""
     from graphtransport.shooting import log_map
@@ -546,11 +559,13 @@ def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
 
 
 @overload
-def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str,
-                    cost_only: Literal[False]) -> GeodesicSolution: ...
+def _torch_geodesic(
+    G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: Literal[False]
+) -> GeodesicSolution: ...
 @overload
-def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str,
-                    cost_only: Literal[True]) -> torch.Tensor: ...
+def _torch_geodesic(
+    G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: Literal[True]
+) -> torch.Tensor: ...
 def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):  # fmt: skip
     """geodesic / transport_cost for torch inputs: a GeodesicSolution of
     tensors, or (cost_only) the tensor W2."""
@@ -694,7 +709,9 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     if method == "shooting":
         _check_shooting_kwargs("transport_cost", kwargs)
     if _is_torch(rhoA, rhoB):
-        return _sqrt_zero_subgradient(_torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True))
+        return _sqrt_zero_subgradient(
+            _torch_geodesic(G, rhoA, rhoB, method, dict(kwargs), "transport_cost", cost_only=True)
+        )
     if method in TRANSPORT_COST_METHODS:
         rhoA, rhoB = _check_density(G, rhoA, "rhoA"), _check_density(G, rhoB, "rhoB")
         return float(np.sqrt(TRANSPORT_COST_METHODS[method](G, rhoA, rhoB, **kwargs)))
@@ -767,8 +784,9 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
 
 
-def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD,
-             **kwargs) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+def analysis(
+    G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kwargs
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Recover the barycentric coordinates of ``target`` with respect to the
     reference densities ``refs``.
 

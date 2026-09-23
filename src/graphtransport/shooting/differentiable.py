@@ -125,9 +125,19 @@ def _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init,
     return a, _torch_potential(G, z)
 
 
-def transport_cost_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
-                                  tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6,
-                                  verbose: bool = False, phi0_init=None, segments="auto") -> torch.Tensor:
+def transport_cost_shooting_torch(
+    G: MarkovGraph,
+    rhoA: torch.Tensor,
+    rhoB: torch.Tensor,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    floor_rtol: float = 1e-6,
+    verbose: bool = False,
+    phi0_init=None,
+    segments="auto",
+) -> torch.Tensor:
     """W2 between rhoA and rhoB (densities w.r.t. G.pi, float64 tensors) by
     shooting, as a 0-d tensor differentiable to first order (see the module
     docstring)."""  # fmt: skip
@@ -135,9 +145,19 @@ def transport_cost_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torc
     return 2 * _torch_hamiltonian(G, a, phi0)
 
 
-def geodesic_shooting_torch(G: MarkovGraph, rhoA: torch.Tensor, rhoB: torch.Tensor, *, nsteps: int = 150,
-                            tol: float = 1e-9, maxiters: int = 50, floor_rtol: float = 1e-6, verbose: bool = False,
-                            phi0_init=None, segments="auto"):
+def geodesic_shooting_torch(
+    G: MarkovGraph,
+    rhoA: torch.Tensor,
+    rhoB: torch.Tensor,
+    *,
+    nsteps: int = 150,
+    tol: float = 1e-9,
+    maxiters: int = 50,
+    floor_rtol: float = 1e-6,
+    verbose: bool = False,
+    phi0_init=None,
+    segments="auto",
+):
     """The shooting geodesic as a GeodesicSolution of differentiable tensors:
     W2, the density and potential paths, the momenta and the endpoint
     potentials all carry gradients back to rhoA and rhoB, to first order (see

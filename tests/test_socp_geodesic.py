@@ -84,8 +84,12 @@ def test_endpoint_potentials_are_gradients_of_w2():
 
     for N in (5, 20):
         sol = geodesic_socp(G, _rho(s), _rho(t), N=N)
-        fd_s = (geodesic_socp(G, _rho(s + eps), _rho(t), N=N).W2 - geodesic_socp(G, _rho(s - eps), _rho(t), N=N).W2) / (2 * eps)
-        fd_t = (geodesic_socp(G, _rho(s), _rho(t + eps), N=N).W2 - geodesic_socp(G, _rho(s), _rho(t - eps), N=N).W2) / (2 * eps)
+        fd_s = (geodesic_socp(G, _rho(s + eps), _rho(t), N=N).W2 - geodesic_socp(G, _rho(s - eps), _rho(t), N=N).W2) / (
+            2 * eps
+        )
+        fd_t = (geodesic_socp(G, _rho(s), _rho(t + eps), N=N).W2 - geodesic_socp(G, _rho(s), _rho(t - eps), N=N).W2) / (
+            2 * eps
+        )
         assert pair(sol.phi0) == pytest.approx(fd_s, rel=1e-3)
         assert pair(sol.phi1) == pytest.approx(fd_t, rel=1e-3)
         assert abs(pair(sol.phi0) - dW2_ds) < 1.0 / N
@@ -149,7 +153,12 @@ def test_distance_ordering_across_means():
     a, b = np.array([2.0, 0.5, 0.5]), np.array([0.5, 0.5, 2.0])
     W2 = {
         name: geodesic_socp(G.with_mean(theta), a, b, N=20).W2
-        for name, theta in (("H", HarmonicMean()), ("G", GeometricMean()), ("L", QuadLogMean(8)), ("A", ArithmeticMean()))
+        for name, theta in (
+            ("H", HarmonicMean()),
+            ("G", GeometricMean()),
+            ("L", QuadLogMean(8)),
+            ("A", ArithmeticMean()),
+        )
     }
     assert W2["H"] > W2["G"] > W2["L"] > W2["A"]
     assert geodesic_socp(G.with_mean(QuadLogMean(12)), a, b, N=20).W2 == pytest.approx(W2["L"], rel=1e-6)

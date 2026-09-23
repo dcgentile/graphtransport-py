@@ -224,7 +224,9 @@ def test_socp_method_dispatches_to_socp_backend():
     assert transport_cost(G, refs[0], refs[1], method="socp", N=4) == pytest.approx(np.sqrt(sol.W2))
     lam = np.array([0.5, 0.3, 0.2])
     nu, J, info = barycenter(G, refs, lam, method="socp", N=4)
-    assert len(info["geodesics"]) == 3 and J == pytest.approx(sum(l * g.W2 for l, g in zip(lam, info["geodesics"])), rel=1e-8)
+    assert len(info["geodesics"]) == 3 and J == pytest.approx(
+        sum(l * g.W2 for l, g in zip(lam, info["geodesics"])), rel=1e-8
+    )
     np.testing.assert_allclose(analysis(G, nu, refs, method="socp", N=4), lam, atol=1e-3)
     lam_hat, A = analysis(G, nu, refs, method="socp", N=4, return_system=True)
     assert A.shape == (3, 3)

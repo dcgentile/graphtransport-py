@@ -55,15 +55,15 @@ adds cvxpy and Clarabel for the SOCP method; the default method doesn't need it.
 import numpy as np
 import graphtransport as gt
 
-G = gt.MarkovGraph(*gt.grid_markov_chain(5))       # a 5x5 grid and its random walk
+G = gt.MarkovGraph(*gt.grid_markov_chain(5))  # a 5x5 grid and its random walk
 rng = np.random.default_rng(0)
 a, b = rng.uniform(0.5, 1.5, G.n), rng.uniform(0.5, 1.5, G.n)
-a, b = a / (a @ G.pi), b / (b @ G.pi)                # densities with respect to G.pi
+a, b = a / (a @ G.pi), b / (b @ G.pi)  # densities with respect to G.pi
 
-sol = gt.geodesic(G, a, b)                          # sol.W2, and sol.rho: the (n, 151) path
-W = gt.transport_cost(G, a, b)                      # the distance itself
+sol = gt.geodesic(G, a, b)  # sol.W2, and sol.rho: the (n, 151) path
+W = gt.transport_cost(G, a, b)  # the distance itself
 nu, J, info = gt.barycenter(G, [a, b], [0.3, 0.7])  # the weighted barycenter
-lam = gt.analysis(G, nu, [a, b])                    # recovers [0.3, 0.7]
+lam = gt.analysis(G, nu, [a, b])  # recovers [0.3, 0.7]
 ```
 
 Densities are taken **with respect to `G.pi`**, the chain's stationary
@@ -122,7 +122,7 @@ import torch
 pi = torch.tensor(G.pi)
 logits = torch.zeros(G.n, dtype=torch.float64, requires_grad=True)
 W = gt.transport_cost(G, torch.softmax(logits, 0) / pi, torch.tensor(b))
-W.backward()                                        # logits.grad: dW/dlogits
+W.backward()  # logits.grad: dW/dlogits
 ```
 
 The gradients are exact for the discrete problem the solver solves, obtained by

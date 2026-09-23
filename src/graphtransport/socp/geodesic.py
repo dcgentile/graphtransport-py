@@ -54,8 +54,7 @@ def _mean_cone(cp, mean: AdmissibleMean, rx, ry, theta):
         return cones + [theta <= sum(float(w) * tk for w, tk in zip(mean.w, thetas))]
     if isinstance(mean, LogarithmicMean):
         raise ValueError(
-            "LogarithmicMean has no conic representation; use QuadLogMean(K) in the SOCP "
-            "(K=8 is accurate to 1e-10)"
+            "LogarithmicMean has no conic representation; use QuadLogMean(K) in the SOCP (K=8 is accurate to 1e-10)"
         )
     raise TypeError(f"unsupported mean for the SOCP: {mean!r}")
 
@@ -138,6 +137,7 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     (calibrated against finite differences and the two-node closed form in
     the tests, as the Julia package does for JuMP's convention).
     """
+
     def phi(constraint):
         dual = constraint.dual_value
         if dual is None:  # a failed solve with check=False
@@ -147,8 +147,9 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     return phi(block["c_left"]), phi(block["c_right"])
 
 
-def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check: bool = True,
-                  verbose: bool = False, **solver_kwargs) -> GeodesicSolution:
+def geodesic_socp(
+    G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check: bool = True, verbose: bool = False, **solver_kwargs
+) -> GeodesicSolution:
     """The discrete transport geodesic between densities rhoA and rhoB on G as
     a single second-order-cone program. W2 is the squared distance.
 

@@ -31,7 +31,9 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("make, n, n_edges", CASES, ids=[c[0].__name__ if hasattr(c[0], "__name__") else "grid" for c in CASES])
+@pytest.mark.parametrize(
+    "make, n, n_edges", CASES, ids=[c[0].__name__ if hasattr(c[0], "__name__") else "grid" for c in CASES]
+)
 def test_node_and_edge_counts_and_valid_chain(make, n, n_edges):
     Q, pi = make()
     assert Q.shape == (n, n)
@@ -43,7 +45,12 @@ def test_node_and_edge_counts_and_valid_chain(make, n, n_edges):
 
 
 def test_regular_graphs_have_uniform_pi():
-    for make, degree in ((triangle_markov_chain, 2), (square_markov_chain, 2), (cube_markov_chain, 3), (hypercube_markov_chain, 4)):
+    for make, degree in (
+        (triangle_markov_chain, 2),
+        (square_markov_chain, 2),
+        (cube_markov_chain, 3),
+        (hypercube_markov_chain, 4),
+    ):
         Q, pi = make()
         np.testing.assert_allclose(pi, 1 / len(pi))
         np.testing.assert_allclose((Q > 0).sum(axis=1), degree)

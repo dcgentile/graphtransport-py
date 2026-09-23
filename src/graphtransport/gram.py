@@ -101,8 +101,15 @@ def _simplex_qp_scipy(A) -> np.ndarray:
     return result.x
 
 
-def solve_barycentric_coordinates_qp(tangent_vectors, g, *, compute_condition: bool = False,
-                                     return_system: bool = False, method: str = "auto", solver=None):
+def solve_barycentric_coordinates_qp(
+    tangent_vectors,
+    g,
+    *,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    method: str = "auto",
+    solver=None,
+):
     """Gram-matrix assembly and simplex-QP solve shared by every analysis
     backend: given the initial tangent vectors of the geodesics from a target
     to each reference and the target's metric tensor g, assemble
@@ -130,8 +137,16 @@ def _describe_condition(A) -> str:
     return f"Estimated condition number of analysis matrix: {e[-1] / e[0]}"
 
 
-def potential_gram_qp(G: MarkovGraph, target, potentials, *, compute_condition: bool = False,
-                      return_system: bool = False, method: str = "auto", solver=None):
+def potential_gram_qp(
+    G: MarkovGraph,
+    target,
+    potentials,
+    *,
+    compute_condition: bool = False,
+    return_system: bool = False,
+    method: str = "auto",
+    solver=None,
+):
     """Gram matrix and simplex QP for potential-based backends: given one
     potential phi_i per reference (the geodesic from target to ref_i, in any
     sign/scale convention common to all i), assemble the Riemannian Gram
@@ -141,6 +156,10 @@ def potential_gram_qp(G: MarkovGraph, target, potentials, *, compute_condition: 
     tangent_vectors = [graph_gradient(G, phi) for phi in potentials]
     g = G.kappa * metric_tensor(G, target)
     return solve_barycentric_coordinates_qp(
-        tangent_vectors, g, compute_condition=compute_condition, return_system=return_system, method=method,
+        tangent_vectors,
+        g,
+        compute_condition=compute_condition,
+        return_system=return_system,
+        method=method,
         solver=solver,
     )

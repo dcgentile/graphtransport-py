@@ -308,7 +308,11 @@ def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, dep
     the same steps: if any column needs a bisection, all bisect.
     """
     rho_next, phi_next = _torch_rk4(G, rho, phi, dt)
-    if bool(torch.isfinite(rho_next).all()) and bool(torch.isfinite(phi_next).all()) and float(rho_next.min()) > floor_val:
+    if (
+        bool(torch.isfinite(rho_next).all())
+        and bool(torch.isfinite(phi_next).all())
+        and float(rho_next.min()) > floor_val
+    ):
         schedule.append(dt)
         return rho_next, phi_next
     if depth <= 0:
@@ -321,11 +325,20 @@ def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, dep
 
 
 @overload
-def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ...,
-                     path: Literal[False] = ...) -> tuple[torch.Tensor, torch.Tensor, list, None]: ...
+def _torch_integrate(
+    G: MarkovGraph,
+    rho,
+    phi,
+    nsteps: int,
+    T: float,
+    floor_val: float,
+    max_halvings: int = ...,
+    path: Literal[False] = ...,
+) -> tuple[torch.Tensor, torch.Tensor, list, None]: ...
 @overload
-def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ...,
-                     *, path: Literal[True]) -> tuple[torch.Tensor, torch.Tensor, list, tuple[torch.Tensor, torch.Tensor]]: ...
+def _torch_integrate(
+    G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ..., *, path: Literal[True]
+) -> tuple[torch.Tensor, torch.Tensor, list, tuple[torch.Tensor, torch.Tensor]]: ...
 def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4,
                      path: bool = False):  # fmt: skip
     """Run the flow from tensors (rho, phi) over [0, T] in nsteps steps, without
@@ -359,8 +372,9 @@ def _torch_replay(G: MarkovGraph, rho, phi, schedule):
     return rho, phi
 
 
-def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: float = 1.0,
-                          floor_rtol: float = 1e-6, max_halvings: int = 4):
+def integrate_hamiltonian(
+    G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: float = 1.0, floor_rtol: float = 1e-6, max_halvings: int = 4
+):
     """Integrate the flow forward from (rho0, phi0) over [0, T], returning the
     paths as (n, nsteps + 1) arrays.
 
@@ -391,4 +405,3 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
     _, _, _, (rho_path, phi_path) = _torch_integrate(G, _as_tensor(rho), _as_tensor(phi), nsteps, T, floor_val,
                                                      max_halvings, path=True)  # fmt: skip
     return rho_path.numpy(), phi_path.numpy()
-
