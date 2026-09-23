@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import sys
 import warnings
+from typing import Literal, overload
 
 import numpy as np
 import torch
@@ -319,8 +320,14 @@ def _advance_interval(G: MarkovGraph, rho, phi, dt: float, floor_val: float, dep
     return _advance_interval(G, rho_mid, phi_mid, dt / 2, floor_val, depth - 1, schedule)
 
 
+@overload
+def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ...,
+                     path: Literal[False] = ...) -> tuple[torch.Tensor, torch.Tensor, list, None]: ...
+@overload
+def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = ...,
+                     *, path: Literal[True]) -> tuple[torch.Tensor, torch.Tensor, list, tuple[torch.Tensor, torch.Tensor]]: ...
 def _torch_integrate(G: MarkovGraph, rho, phi, nsteps: int, T: float, floor_val: float, max_halvings: int = 4,
-                     path: bool = False):
+                     path: bool = False):  # fmt: skip
     """Run the flow from tensors (rho, phi) over [0, T] in nsteps steps, without
     autodiff. Returns (rho_end, phi_end, schedule, paths): schedule[i] is the
     list of step lengths that step i was taken in (one entry unless it was

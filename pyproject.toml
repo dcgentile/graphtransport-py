@@ -47,3 +47,7 @@ filterwarnings = ["ignore::graphtransport.shooting.hamiltonian.TorchThreadsWarni
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/graphtransport"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"

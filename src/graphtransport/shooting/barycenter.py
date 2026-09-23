@@ -140,12 +140,13 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
                 candidate = exp_map(G, nu, h * g, nsteps=nsteps, kind="potential", floor_rtol=floor_rtol)
             except PositivityFloorError:
                 candidate = None
-            unreachable = candidate is None or candidate.min() <= floor_val
-            if not unreachable:
+            rs_new = None
+            if candidate is not None and candidate.min() > floor_val:
                 rs_new = logmaps(candidate, {i: rs[i].phi0 for i in active})
-                unreachable = rs_new is None
-                if not unreachable and objective(rs_new) < J:
-                    J_new = objective(rs_new)
+            unreachable = rs_new is None
+            if rs_new is not None:
+                J_new = objective(rs_new)
+                if J_new < J:
                     decreased = J - J_new > ftol * abs(J)
                     nu, rs, J = candidate, rs_new, J_new
                     accepted = True

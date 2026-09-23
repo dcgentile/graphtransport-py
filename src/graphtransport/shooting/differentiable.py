@@ -74,8 +74,11 @@ class _LogMapPotential(torch.autograd.Function):
 
     @staticmethod
     @torch.autograd.function.once_differentiable
-    def backward(ctx, z_bar):
+    def backward(ctx, *grad_outputs):  # pyright: ignore[reportIncompatibleMethodOverride]
+        # (once_differentiable returns an untyped wrapper; this is torch's documented pattern)
         from graphtransport.shooting.explog import _shoot, _shooting_jacobian
+
+        (z_bar,) = grad_outputs
 
         nu, z = ctx.saved_tensors
         G, n = ctx.G, ctx.G.n

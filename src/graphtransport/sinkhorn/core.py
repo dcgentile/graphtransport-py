@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import warnings
 
+from typing import cast
+
 import numpy as np
 from scipy.optimize import minimize
 
@@ -211,6 +213,7 @@ def _loss_and_gradient(alpha, measures, target, cost, epsilon: float, iters: int
         raise ValueError("the regression loss needs a target")
     lam = logarithmic_change_of_variable(alpha)
     p, w = sinkhorn_differentiate(lam, measures, target, cost, epsilon, iters)
+    w = cast(np.ndarray, w)  # returned whenever a target is given, as here
     return sqeuc_loss(p, target), lam * (w - lam @ w)
 
 

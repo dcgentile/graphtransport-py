@@ -66,6 +66,11 @@ def _check_steps(N) -> None:
         raise ValueError(f"N must be an integer >= 1 (the number of time intervals), got {N!r}")
 
 
+def _objective_value(problem) -> float:
+    """A solved problem's objective, or NaN if the solve produced none."""
+    return np.nan if problem.value is None else float(np.asarray(problem.value))
+
+
 def _value(variable, shape: tuple[int, int]) -> np.ndarray:
     """A solved variable's value, or NaN of the right shape if the solve
     produced none. np.asarray(None, dtype=float) is the 0-d array nan rather
@@ -171,7 +176,7 @@ def geodesic_socp(G: MarkovGraph, rhoA, rhoB, *, N: int = 10, solver=None, check
     rho = _value(blk["rho"], (G.n, N + 1))
     m = _value(blk["m"], (G.E.shape[0], N))
     return GeodesicSolution(
-        float(problem.value) if problem.value is not None else np.nan,
+        _objective_value(problem),
         rho, m, m[:, 0].copy(),
         *endpoint_potentials(G, blk), status, float(problem.solver_stats.solve_time or 0.0),
     )  # fmt: skip

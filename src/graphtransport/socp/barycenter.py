@@ -6,7 +6,13 @@ import numpy as np
 
 from graphtransport.api import GeodesicSolution
 from graphtransport.graph import MarkovGraph
-from graphtransport.socp.geodesic import _check_steps, _value, endpoint_potentials, geodesic_block
+from graphtransport.socp.geodesic import (
+    _check_steps,
+    _objective_value,
+    _value,
+    endpoint_potentials,
+    geodesic_block,
+)
 from graphtransport.solvers import import_cvxpy, solve_conic
 
 
@@ -45,7 +51,7 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
     _check_steps(N)
     h = 1.0 / N
     nu = cp.Variable(G.n, nonneg=True)
-    constraints = [nu @ G.pi == 1]
+    constraints: list = [nu @ G.pi == 1]
     blocks = []
     for i in active:
         blk = geodesic_block(G, N, h, np.asarray(refs[i], dtype=float), nu)
@@ -76,5 +82,5 @@ def barycenter_socp(G: MarkovGraph, refs, lam, *, N: int = 10, solver=None, chec
             )  # fmt: skip
         )
     nu_value = np.full(G.n, np.nan) if nu.value is None else np.asarray(nu.value, dtype=float)
-    J = float(problem.value) if problem.value is not None else np.nan
+    J = _objective_value(problem)
     return nu_value, J, geodesics

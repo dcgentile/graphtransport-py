@@ -77,7 +77,8 @@ def _simplex_qp_cvxpy(A, solver) -> np.ndarray:
     x = cp.Variable(p)
     # psd_wrap skips cvxpy's own PSD check, which round-off negative
     # eigenvalues of a Gram matrix would fail; simplex_qp checked A above.
-    problem = cp.Problem(cp.Minimize(cp.quad_form(x, cp.psd_wrap(A))), [x >= 0, cp.sum(x) == 1])
+    constraints: list = [x >= 0, cp.sum(x) == 1]  # cvxpy's stubs type x >= 0 as possibly bool
+    problem = cp.Problem(cp.Minimize(cp.quad_form(x, cp.psd_wrap(A))), constraints)
     solve_conic(problem, solver, "simplex_qp", hint="Try method='scipy'.")
     return np.asarray(x.value, dtype=float).reshape(p)
 

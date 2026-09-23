@@ -27,6 +27,7 @@ from __future__ import annotations
 
 try:
     import jax
+    import jax.core
     import jax.numpy as jnp
 except ImportError as exc:  # pragma: no cover - exercised only without jax
     raise ImportError(

@@ -50,11 +50,12 @@ class MarkovGraph:
 
     def __init__(self, Q, pi, *, rtol: float = 1e-12, mean: AdmissibleMean | None = None):
         self.mean: AdmissibleMean = GeometricMean() if mean is None else _check_mean(mean)
-        Q = sparse.csr_matrix(np.asarray(Q, dtype=float))
+        Q_dense = np.asarray(Q, dtype=float)
         pi = np.asarray(pi, dtype=float)
-        n = Q.shape[0]
-        if Q.shape[1] != n:
-            raise ValueError(f"Q must be square, got shape {Q.shape}")
+        if Q_dense.ndim != 2 or Q_dense.shape[0] != Q_dense.shape[1]:
+            raise ValueError(f"Q must be square, got shape {Q_dense.shape}")
+        n = Q_dense.shape[0]
+        Q = sparse.csr_matrix(Q_dense)
         if pi.shape[0] != n:
             raise ValueError(f"pi has length {pi.shape[0]}, expected {n}")
 

@@ -53,7 +53,14 @@ class ShootingError(RuntimeError):
     the line search failed, or no admissible initial potential was found.
 
     log_map_mollified catches this (and PositivityFloorError) to skip a
-    mollification level; nothing broader."""
+    mollification level; nothing broader.
+
+    The API sets ``summary`` (a one-line description for the fallback
+    warning) and ``retry_hint`` (the keyword that may let shooting solve it
+    exactly) when it re-raises a failure with context."""
+
+    summary: str | None = None
+    retry_hint: str | None = None
 
 
 @dataclass
@@ -301,7 +308,8 @@ _AUTO_SEGMENTS = 8
 
 
 def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, maxiters: int = 50,
-            nsteps: int = 150, floor_rtol: float = 1e-6, segments="auto", verbose: bool = False) -> LogMapResult:
+            nsteps: int = 150, floor_rtol: float = 1e-6, segments: int | str = "auto",
+            verbose: bool = False) -> LogMapResult:
     """The Riemannian logarithm of ``target`` at ``nu``, by single or multiple
     shooting.
 
@@ -352,8 +360,9 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
         raise ValueError(f"nsteps must be an integer >= 1, got {nsteps!r}")
     auto = isinstance(segments, str) and segments == "auto"
     if not auto and (isinstance(segments, bool) or not isinstance(segments, (int, np.integer))
-                     or not 1 <= segments <= nsteps):  # fmt: skip
+                     or not 1 <= int(segments) <= nsteps):  # fmt: skip
         raise ValueError(f"segments must be 'auto' or an integer between 1 and nsteps ({nsteps}), got {segments!r}")
+    fixed_segments = None if auto else int(segments)
     floor_val = rho_floor(G, rtol=floor_rtol)
     nu = _check_interior(G, nu, floor_val, "nu")
     target = _check_interior(G, target, floor_val, "target")
@@ -368,9 +377,9 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     nu = nu / (nu @ G.pi)
     target = target / (target @ G.pi)
 
-    if not auto and segments > 1:
+    if fixed_segments is not None and fixed_segments > 1:
         return _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val, floor_rtol,
-                                 int(segments), verbose)  # fmt: skip
+                                 fixed_segments, verbose)  # fmt: skip
 
     n = G.n
     sqrt_pi = np.sqrt(G.pi)
@@ -398,7 +407,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
 
     # The first-order guess can overshoot through the floor for far-apart
     # endpoints; damp it until the first shot survives.
-    F = None
+    F, schedule = None, []
     for _ in range(13):
         try:
             F, schedule = shoot(z)
@@ -429,7 +438,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
             try:
                 F_try, schedule_try = shoot(z_try)
             except PositivityFloorError:
-                F_try = None
+                F_try, schedule_try = None, []
             if F_try is not None and resnorm(F_try) <= (1 - 1e-4 * alpha) * r:
                 z, F, schedule, r = z_try, F_try, schedule_try, resnorm(F_try)
                 accepted = True
@@ -567,7 +576,7 @@ def log_map_mollified(G: MarkovGraph, nu, target, *, epsilons=(1e-2, 1e-3, 1e-4)
         result = level
         Ws.append(np.sqrt(level.W2))
         used.append(eps)
-    if len(used) < 2:  # levels are distinct, so the fit below has full rank
+    if len(used) < 2 or result is None:  # levels are distinct, so the fit below has full rank
         raise ShootingError("log_map_mollified: fewer than two epsilon levels solved; fall back to method='socp'")
 
     X = np.column_stack([np.ones(len(used)), np.sqrt(used)])

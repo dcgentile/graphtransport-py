@@ -36,8 +36,12 @@ import sys
 import time
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
+
+if TYPE_CHECKING:  # torch is imported lazily, only for tensor inputs
+    import torch
 
 from graphtransport.graph import MarkovGraph
 from graphtransport.sinkhorn.core import (
@@ -70,15 +74,17 @@ class GeodesicSolution:
     geodesics can be shorter than refs and this is what ties each one back.
 
     Methods that do not produce a quantity fill it with NaN (the Sinkhorn
-    method has no momenta or potentials).
+    method has no momenta or potentials). For numpy inputs the fields are a
+    float and numpy arrays; for torch inputs (geodesic on tensors) they are
+    tensors.
     """
 
-    W2: float
-    rho: np.ndarray
-    m: np.ndarray
-    m0: np.ndarray
-    phi0: np.ndarray
-    phi1: np.ndarray
+    W2: float | torch.Tensor
+    rho: np.ndarray | torch.Tensor
+    m: np.ndarray | torch.Tensor
+    m0: np.ndarray | torch.Tensor
+    phi0: np.ndarray | torch.Tensor
+    phi1: np.ndarray | torch.Tensor
     status: str
     solvetime: float
     ref_index: int | None = None
@@ -204,7 +210,7 @@ def _check_weights(lam, count: int) -> np.ndarray:
     return lam
 
 
-def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph):
+def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph) -> tuple[np.ndarray, float]:
     if cost is None:
         raise ValueError(f"{what}(method='sinkhorn') requires cost= (see ground_cost)")
     if epsilon is None:
@@ -212,11 +218,11 @@ def _require_sinkhorn_kwargs(what: str, cost, epsilon, G: MarkovGraph):
     cost = np.asarray(cost, dtype=float)
     if cost.shape != (G.n, G.n):
         raise ValueError(f"cost must be {G.n}x{G.n}, got {cost.shape}")
-    return cost
+    return cost, epsilon  # validated by the Sinkhorn core (_check_epsilon)
 
 
 def _barycenter_sinkhorn(G: MarkovGraph, refs, lam, *, cost=None, epsilon=None, iters: int = 256):
-    cost = _require_sinkhorn_kwargs("barycenter", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("barycenter", cost, epsilon, G)
     mu = np.column_stack([r * G.pi for r in refs])
     p = sinkhorn_barycenter(lam, mu, cost, epsilon, iters=iters)
     K = regularize_cost(cost, epsilon)
@@ -242,7 +248,7 @@ def _geodesic_sinkhorn(
     G: MarkovGraph, rhoA, rhoB, *, N: int = 10, cost=None, epsilon=None, iters: int = 256, tol: float = 1e-6
 ):
     t0 = time.perf_counter()
-    cost = _require_sinkhorn_kwargs("geodesic", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("geodesic", cost, epsilon, G)
     if isinstance(N, bool) or not isinstance(N, (int, np.integer)) or N < 1:
         raise ValueError(f"N must be an integer >= 1, got {N!r}")
     # Only the path is needed here, so skip _barycenter_sinkhorn's objective
@@ -262,7 +268,7 @@ def _transport_cost_sinkhorn(
 ):
     """W2 needs one plan solve; the geodesic would compute N + 1 barycenters
     to get it. N is accepted (it is a geodesic keyword) and has no effect."""
-    cost = _require_sinkhorn_kwargs("transport_cost", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("transport_cost", cost, epsilon, G)
     W2, marginal_error = _endpoint_plan(G, rhoA, rhoB, cost, epsilon, iters)
     if marginal_error > tol:
         warnings.warn(
@@ -285,7 +291,7 @@ def _analysis_sinkhorn(
     compute_condition: bool = False,
     return_system: bool = False,
 ):
-    cost = _require_sinkhorn_kwargs("analysis", cost, epsilon, G)
+    cost, epsilon = _require_sinkhorn_kwargs("analysis", cost, epsilon, G)
     if compute_condition or return_system:
         raise ValueError(
             "analysis(method='sinkhorn') is not a Gram-matrix method; "
@@ -465,7 +471,7 @@ def _transport_cost_shooting(G: MarkovGraph, rhoA, rhoB, *, fallback: bool = Tru
             return log_map(G, a, b, nsteps=nsteps, tol=tol, maxiters=maxiters, phi0_init=phi0_init,
                            floor_rtol=floor_rtol, segments=segments, verbose=verbose).W2  # fmt: skip
 
-    return _with_fallback("transport_cost", fallback, run, lambda: _geodesic_socp(G, rhoA, rhoB).W2)
+    return _with_fallback("transport_cost", fallback, run, lambda: float(_geodesic_socp(G, rhoA, rhoB).W2))
 
 
 def _barycenter_shooting(G: MarkovGraph, refs, lam, *, fallback: bool = True, floor_rtol: float = 1e-6, **kwargs):
@@ -539,7 +545,13 @@ def _solution_to_torch(sol: GeodesicSolution) -> GeodesicSolution:
                             as_t(sol.phi1), sol.status, sol.solvetime, sol.ref_index)  # fmt: skip
 
 
-def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):
+@overload
+def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str,
+                    cost_only: Literal[False]) -> GeodesicSolution: ...
+@overload
+def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str,
+                    cost_only: Literal[True]) -> torch.Tensor: ...
+def _torch_geodesic(G: MarkovGraph, rhoA, rhoB, method: str, kwargs: dict, what: str, cost_only: bool):  # fmt: skip
     """geodesic / transport_cost for torch inputs: a GeodesicSolution of
     tensors, or (cost_only) the tensor W2."""
     import torch
@@ -662,7 +674,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     return GEODESIC_METHODS[method](G, rhoA, rhoB, **kwargs)
 
 
-def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> float:
+def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwargs) -> float | torch.Tensor:
     """The discrete transport distance W(rhoA, rhoB) (not squared):
     sqrt(geodesic(...).W2). See geodesic for the methods and keywords.
 
@@ -689,7 +701,7 @@ def transport_cost(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, 
     return float(np.sqrt(geodesic(G, rhoA, rhoB, method=method, **kwargs).W2))
 
 
-def _sqrt_zero_subgradient(W2):
+def _sqrt_zero_subgradient(W2: torch.Tensor) -> torch.Tensor:
     """sqrt(W2) with gradient 0 where W2 == 0, torch.linalg.norm's convention:
     sqrt's own derivative there is infinite, and inf * 0 gives a nan that
     would poison a training loop whose prediction matches its target. Zero is
@@ -755,7 +767,8 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     return BARYCENTER_METHODS[method](G, refs, lam, **kwargs)
 
 
-def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kwargs) -> np.ndarray:
+def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD,
+             **kwargs) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Recover the barycentric coordinates of ``target`` with respect to the
     reference densities ``refs``.
 
