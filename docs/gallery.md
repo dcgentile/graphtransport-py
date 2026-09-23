@@ -16,11 +16,13 @@ smoothed between nodes).</figcaption>
 ## Barycenters of digits
 
 <figure markdown>
-![Barycenters of four digit images](assets/digits.png){ width="420" }
+![Barycenters of four digit images](assets/digits-light.png#only-light){ width="420" }
+![Barycenters of four digit images](assets/digits-dark.png#only-dark){ width="420" }
 <figcaption>The corners are four 16×16 digit images, densities on the pixel grid.
 Every other panel is their barycenter, for weights bilinear in the panel's
-position, by the SOCP. Colour is only a label: each corner digit has a hue, and
-each barycenter shows the same weighted mix.</figcaption>
+position, by the SOCP. The digits are centered on top of one another, so mass only
+moves locally, and the in-between panels look more like a cross-fade than a
+slide.</figcaption>
 </figure>
 
 ## Three methods, one transport
@@ -37,6 +39,6 @@ and the SOCP agree; Sinkhorn's entropic interpolation blurs.</figcaption>
 <figure markdown>
 ![Gradient descent moves a uniform density onto a bump](assets/gradient-light.png#only-light)
 ![Gradient descent moves a uniform density onto a bump](assets/gradient-dark.png#only-dark)
-<figcaption>Minimising the transport distance to a target with Adam; see
+<figcaption>Minimizing the transport distance to a target with Adam; see
 <a href="../differentiable/">differentiable geodesics</a>.</figcaption>
 </figure>

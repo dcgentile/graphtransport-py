@@ -35,6 +35,7 @@ nav:
   - Differentiable geodesics: differentiable.md
   - Gallery: gallery.md
   - API reference: api.md
+  - References: references.md
 
 markdown_extensions:
   - admonition

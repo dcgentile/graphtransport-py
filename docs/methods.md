@@ -3,13 +3,15 @@
 All three methods take the same call and differ in `method=` and its keywords.
 
 - **`"shooting"`** (default) solves Newton's method on the Hamiltonian flow of
-  the geodesic equations. It is exact in time, needs no conic solver, works with
+  the geodesic equations, integrated by fourth-order Runge–Kutta
+  (`nsteps=150`). It needs no conic solver, works with
   every admissible mean, and is [differentiable](differentiable.md). Every
   density must be strictly positive.
-- **`"socp"`** discretises time into `N` steps and solves one second-order cone
+- **`"socp"`** discretizes time into `N` steps and solves one second-order cone
   program (cvxpy + Clarabel, `graphtransport[socp]`). It takes densities that are
-  zero on part of the graph, and its barycenter is a global optimum, the
-  certificate for the others. Its error is \(O(1/N)\).
+  zero on part of the graph, and its barycenter is the global optimum of its
+  discretization, the reference for the others. Its time error is first order,
+  \(O(1/N)\).
 - **`"sinkhorn"`** is entropically regularised transport for a ground cost you
   pass in (`cost=`, `epsilon=`). It computes a different object, and it blurs.
 
@@ -23,7 +25,7 @@ the SOCP compute the same geodesic; Sinkhorn's is the entropic interpolation.</f
 ## Cost
 
 The SOCP at its default `N=10` was the fastest method on every problem measured,
-on n×n grids of 9 to 256 nodes. What shooting offers is exactness in time, no
+on n×n grids of 9 to 256 nodes. What shooting offers is fourth-order accuracy in time, no
 conic solver, and gradients, not speed. Seconds per geodesic, single shooting
 against the SOCP:
 

@@ -5,8 +5,9 @@
 
 **Optimal transport on graphs.** Geodesics, distances, barycenters and
 barycentric coordinates for densities on the nodes of a graph, under the
-discrete transport metric of Maas and of Erbar, Rumpf, Schmitzer & Simon.
-Differentiable with PyTorch.
+discrete transport metric of Maas and of Chow, Huang, Li and Zhou.
+Differentiable with PyTorch. It builds on
+[Gentile & Murphy (2026)](https://arxiv.org/abs/2603.26940); see [Citing](#citing).
 
 <p align="center">
   <picture>
@@ -23,12 +24,12 @@ Differentiable with PyTorch.
 
 - **Geodesics and distances** between two densities: the whole transport path,
   its momenta and potentials, and the distance $W$.
-- **Barycenters**: the density minimising $\sum_i \lambda_i W^2(\rho_i, \nu)$ for
+- **Barycenters**: the density minimizing $\sum_i \lambda_i W^2(\rho_i, \nu)$ for
   reference densities $\rho_i$ and weights $\lambda_i$.
 - **Barycentric analysis**: the weights that make a given density a barycenter
   of the references.
 - **Three methods behind one API**: Newton shooting on the geodesic equations
-  (exact in time, with an adaptive multiple-shooting mode), a second-order cone
+  (fourth-order in time, with an adaptive multiple-shooting mode), a second-order cone
   program (handles densities that are zero on part of the graph), and entropic
   Sinkhorn.
 - **Gradients**: `geodesic` and `transport_cost` take torch tensors, with exact
@@ -72,12 +73,17 @@ distribution: `rho @ G.pi == 1`. The probability vector a density stands for is
 ## Pictures
 
 <p align="center">
-  <img src="docs/assets/digits.png" width="340" alt="Barycenters of four digit images">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/digits-dark.png">
+    <img src="docs/assets/digits-light.png" width="340" alt="Barycenters of four digit images">
+  </picture>
 </p>
 
 **Barycenters of digits.** The corners are four 16×16 digit images, each a
 density on the pixel grid. Every other panel is their barycenter, for weights
-that vary bilinearly across the square. Colour is only a label.
+that vary bilinearly across the square. The digits are centered on top of one
+another, so mass only moves locally, and the in-between panels look more like a
+cross-fade than a slide.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/methods-dark.png">
@@ -98,12 +104,14 @@ Every function takes `method=`:
 
 | method | use it for | notes |
 |---|---|---|
-| `"shooting"` (default) | exact geodesics; gradients | densities must be strictly positive; with data that touches zero it warns and falls back to the SOCP |
-| `"socp"` | data that is zero on part of the graph; a certified barycenter | error $O(1/N)$ in time; fastest at its default `N=10`; needs `[socp]` |
+| `"shooting"` (default) | fourth-order geodesics; gradients | densities must be strictly positive; with data that touches zero it warns and falls back to the SOCP |
+| `"socp"` | data that is zero on part of the graph; a globally optimal barycenter of its discretization | error $O(1/N)$ in time; fastest at its default `N=10`; needs `[socp]` |
 | `"sinkhorn"` | a fast, smooth approximation for a ground cost | a different object: needs `cost=` and `epsilon=`, and blurs |
 
-On long transports the default shooting mode switches to multiple shooting by
-itself, about twice as fast there. Timings and details are in
+Shooting is the default, although the SOCP at `N=10` is faster, because it is
+the method with fourth-order accuracy in time, gradients, and no conic solver.
+On long transports it switches to multiple shooting by itself, about twice as
+fast there. Timings and details are in
 [choosing a method](https://dcgentile.github.io/graphtransport-py/methods/).
 
 ## Gradients
@@ -136,6 +144,36 @@ standalone package, and it differs where that made it more useful in Python:
 
 Julia's Chambolle–Pock solver is not included.
 
+## How this was built
+
+This code exists in support of David Gentile's dissertation work. It began as a
+port of his Julia package
+[GraphTransportation.jl](https://github.com/dcgentile/GraphTransportation.jl),
+which he has developed since 2025, and it builds on his paper with J. M. Murphy,
+listed under [Citing](#citing).
+
+The Python code was written largely by Claude, Anthropic's AI model, through
+Claude Code, under David's direction; commits it co-wrote carry a
+`Co-Authored-By` trailer. The work proceeded one pull request at a time, and
+most of the pull requests carry a written review, based on running edge-case
+inputs against the change, which David read and questioned before merging; the
+review threads are public. The design decisions were David's, among them:
+
+- shooting as the default method, although the SOCP is faster, for its accuracy
+  in time and its gradients;
+- PyTorch as a core dependency, for an exact shooting Jacobian and
+  differentiable geodesics
+  ([#23](https://github.com/dcgentile/graphtransport-py/pull/23),
+  [#24](https://github.com/dcgentile/graphtransport-py/pull/24));
+- refusing, rather than silently falling back, when gradients are requested
+  and shooting cannot take the data
+  ([#24](https://github.com/dcgentile/graphtransport-py/pull/24));
+- keeping multiple shooting for speed, and making it switch on by itself
+  ([#25](https://github.com/dcgentile/graphtransport-py/pull/25),
+  [#26](https://github.com/dcgentile/graphtransport-py/pull/26));
+- rejecting conic solves that end at reduced accuracy
+  ([#22](https://github.com/dcgentile/graphtransport-py/pull/22)).
+
 ## Development
 
 ```
@@ -147,6 +185,17 @@ pytest                   # about 4 minutes; pytest -m "" adds the slow Julia cro
 
 The documentation site builds with `pip install -e ".[docs]" && mkdocs serve`.
 Its figures are regenerated by `python docs/figures/make_figures.py`.
+
+## Citing
+
+If you use this package, please cite the paper it builds on:
+
+> D. Gentile, J. M. Murphy. *Static and dynamic approaches to computing barycenters of probability measures on graphs.* arXiv:2603.26940, 2026.
+> <https://arxiv.org/abs/2603.26940>
+
+[`CITATION.cff`](CITATION.cff) has the details, and the documentation's
+[References](https://dcgentile.github.io/graphtransport-py/references/) page
+collects the literature behind each method.
 
 ## License
 

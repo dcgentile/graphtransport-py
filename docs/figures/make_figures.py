@@ -6,7 +6,7 @@
 Each figure's data is computed once and cached in docs/figures/.cache (not
 committed), so restyling only re-renders; delete the cache to recompute. Every
 chart is rendered twice, for the site's light and dark themes (the pages pick
-one with Material's #only-light / #only-dark). Colours come from a validated
+one with Material's #only-light / #only-dark). Colors come from a validated
 palette: one blue ramp for densities (magnitude), and three categorical hues
 for the three ways of shooting. Needs the "socp" and "docs" extras; about ten
 minutes from an empty cache, most of it the digit barycenters.
@@ -185,19 +185,15 @@ def digits_data():
 
 
 def digits():
-    # an illustration with its own black ground, one version for both themes; each corner
-    # digit takes a categorical hue and each barycenter the same weighted mix
     square = cached("digits", digits_data)
-    corners = np.array([[0.165, 0.471, 0.839], [0.922, 0.408, 0.204], [0.106, 0.686, 0.478], [0.929, 0.631, 0.0]])
-    fig, axes = plt.subplots(4, 4, figsize=(5, 5), facecolor="black")
-    for (i, j), rho in square.items():
-        s, t = i / 3, j / 3
-        lam = np.array([(1 - s) * (1 - t), (1 - s) * t, s * (1 - t), s * t])
-        axes[i, j].imshow((rho / rho.max()).reshape(16, 16)[..., None] * (lam @ corners), origin="lower")
-        axes[i, j].axis("off")
-    fig.subplots_adjust(0.02, 0.02, 0.98, 0.98, 0.08, 0.08)
-    fig.savefig(ASSETS / "digits.png", dpi=160, facecolor="black")
-    plt.close(fig)
+    vmax = max(float(np.percentile(rho, 99.5)) for rho in square.values())
+    for theme, t in THEMES.items():
+        fig, axes = plt.subplots(4, 4, figsize=(5, 5))
+        fig.patch.set_facecolor(t["surface"])
+        for (i, j), rho in square.items():
+            density_axes(axes[i, j], rho, 16, t["density"], vmax, t["surface"])
+        fig.subplots_adjust(0.02, 0.02, 0.98, 0.98, 0.08, 0.08)
+        save(fig, "digits", theme)
 
 
 # ----- multiple shooting: seconds per geodesic -----
@@ -282,13 +278,13 @@ def gradient_data():
     target = density(G, np.exp(-((xy - (4, 4)) ** 2).sum(axis=1) / 2) + 0.05)
     pi = torch.tensor(G.pi)
     logits = torch.zeros(G.n, dtype=torch.float64, requires_grad=True)
-    optimiser = torch.optim.Adam([logits], lr=0.3)
+    optimizer = torch.optim.Adam([logits], lr=0.3)
     snapshots, history = {0: np.ones(G.n)}, []
     for step in range(1, GRAD_STEPS[-1] + 1):
-        optimiser.zero_grad()
+        optimizer.zero_grad()
         W = gt.transport_cost(G, torch.softmax(logits, 0) / pi, torch.tensor(target))
         W.backward()
-        optimiser.step()
+        optimizer.step()
         history.append(W.item())
         if step in GRAD_STEPS:
             snapshots[step] = (torch.softmax(logits, 0) / pi).detach().numpy()

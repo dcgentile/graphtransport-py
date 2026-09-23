@@ -16,7 +16,8 @@ numerical algorithm:
   geodesic.
 
 The default diverges from the Julia package, which defaults to ``:socp``.
-What shooting offers is exactness in time and no conic solver, not speed:
+What shooting offers is fourth-order accuracy in time (RK4, against the
+SOCP's first order), gradients and no conic solver, not speed:
 the SOCP at its default N=10 is faster on the graphs measured (see the
 README). Shooting also cannot take boundary-supported data, and gets stiff
 as densities approach zero; both are reasons to pass ``method="socp"``, and
@@ -117,7 +118,7 @@ def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
         described.append(f"{k} (a keyword of {owners})")
     hint = ""
     if method == "shooting" and "N" in stray:
-        hint = " Shooting is exact in time; its integrator's resolution is nsteps= (default 150)."
+        hint = " Shooting integrates in time by RK4; its resolution is nsteps= (default 150)."
     raise TypeError(f"{what}: method={method!r} does not take {', '.join(described)}.{hint}")
 
 
@@ -613,7 +614,7 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
 
     method="shooting" (default): Newton shooting on the Hamiltonian flow
     (shooting.geodesic_shooting), then the flow integrated for the path.
-    Exact in time up to RK4 truncation; both endpoints must be strictly
+    Fourth-order in time (RK4 truncation); both endpoints must be strictly
     positive. If one is not, or shooting fails on them (densities close to
     zero, or a transport that needs more than maxiters Newton steps), this warns
     (ShootingFallbackWarning) and returns method="socp"'s answer at its
@@ -717,8 +718,8 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     """The discrete transport barycenter of the reference densities ``refs``
     with weights ``lam``: the minimiser of J(nu) = sum_i lam_i W^2(refs_i, nu).
 
-    method="shooting" (default): intrinsic gradient descent with exact-in-
-    time geodesics (shooting.barycenter_shooting). Every reference with
+    method="shooting" (default): intrinsic gradient descent with shooting
+    geodesics (shooting.barycenter_shooting). Every reference with
     lam_i > 0 must be strictly positive. info = {"iters", "status",
     "J_hist", "grad_hist", "h"}; status is "converged", "stalled" (at the
     precision of the log maps) or "maxiters" (which warns). Keywords: ``h``,
@@ -728,7 +729,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     each log map, see shooting.log_map), ``nsteps``, ``init``, ``verbose``.
     First order, so it
     converges linearly; method="socp" solves the same problem to its global
-    optimum and is the certificate.
+    optimum of its discretisation and is the reference.
 
     method="socp": one joint second-order-cone program
     (socp.barycenter_socp), solved to its global optimum.

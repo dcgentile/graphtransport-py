@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper it builds on."
+title: graphtransport
+abstract: "Optimal transport on graphs: geodesics, distances, barycenters and barycentric coordinates under the discrete transport metric, differentiable with PyTorch."
+type: software
+authors:
+  - family-names: Gentile
+    given-names: David
+license: MIT
+repository-code: "https://github.com/dcgentile/graphtransport-py"
+url: "https://dcgentile.github.io/graphtransport-py/"
+version: 0.1.0
+preferred-citation:
+  type: article
+  title: "Static and dynamic approaches to computing barycenters of probability measures on graphs"
+  authors:
+    - family-names: Gentile
+      given-names: David
+    - family-names: Murphy
+      given-names: "J. M."
+  year: 2026
+  journal: "arXiv preprint"
+  url: "https://arxiv.org/abs/2603.26940"
+  identifiers:
+    - type: other
+      value: "arXiv:2603.26940"

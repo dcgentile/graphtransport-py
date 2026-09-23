@@ -18,7 +18,7 @@ def geodesic_shooting(G: MarkovGraph, rhoA, rhoB, *, nsteps: int = 150, tol: flo
                       verbose: bool = False) -> GeodesicSolution:
     """The geodesic from rhoA to rhoB: Newton shooting on the Hamiltonian flow
     (log_map) for the initial potential, then the flow integrated to produce
-    the path. Exact in time up to RK4's truncation error, and requires both
+    the path. Fourth-order in time (RK4's truncation error), and requires both
     endpoints strictly positive.
 
     rho has nsteps + 1 columns and m has nsteps, m[:, t] being the momentum
