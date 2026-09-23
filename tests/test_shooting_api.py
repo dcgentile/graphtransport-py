@@ -8,9 +8,9 @@ import pytest
 
 from graphtransport import (
     GeodesicSolution,
-    ShootingFallbackWarning,
     LogarithmicMean,
     MarkovGraph,
+    ShootingFallbackWarning,
     analysis,
     barycenter,
     geodesic,

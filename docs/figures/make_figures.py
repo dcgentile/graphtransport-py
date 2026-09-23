@@ -117,7 +117,7 @@ def hero():
         image = ax.images[0]
         fig.subplots_adjust(0, 0, 1, 1)
 
-        def draw(j):
+        def draw(j, image=image):  # bound now; the animation is saved in this iteration anyway
             image.set_data(rho[:, j].reshape(K_HERO, K_HERO))
             return (image,)
 
@@ -145,7 +145,7 @@ def methods():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, 3, figsize=(7.2, 2.7))
         fig.patch.set_facecolor(t["surface"])
-        for ax, (name, mid) in zip(axes, mids.items()):
+        for ax, (name, mid) in zip(axes, mids.items(), strict=True):
             density_axes(ax, mid, K_HERO, t["density"], vmax, t["surface"])
             ax.set_title(name, color=t["ink"], fontsize=10)
         save(fig, "methods", theme)
@@ -179,8 +179,8 @@ def digits_data():
             if used.sum() == 1:
                 square[i, j] = digits[int(np.argmax(lam))]
             else:
-                square[i, j] = gt.barycenter(G, [d for d, u in zip(digits, used) if u], lam[used], method="socp",
-                                             N=12)[0]  # fmt: skip
+                refs = [d for d, u in zip(digits, used, strict=True) if u]
+                square[i, j] = gt.barycenter(G, refs, lam[used], method="socp", N=12)[0]
     return square
 
 
@@ -234,9 +234,9 @@ def speed():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.3), sharey=True)
         fig.patch.set_facecolor(t["surface"])
-        for ax, kind in zip(axes, ["near-uniform", "corner bumps"]):
+        for ax, kind in zip(axes, ["near-uniform", "corner bumps"], strict=True):
             ax.set_facecolor(t["surface"])
-            for color, name in zip(t["series"], SPEED_VARIANTS):
+            for color, name in zip(t["series"], SPEED_VARIANTS, strict=True):
                 seconds = data[kind, name]
                 ax.plot(nodes, seconds, "-o", color=color, lw=2, ms=6, label=name,
                         markeredgecolor=t["surface"], markeredgewidth=1.5)  # fmt: skip
@@ -251,9 +251,11 @@ def speed():
             ax.spines["bottom"].set_color(t["axis"])
             ax.set_xlim(40, 300)
             # direct labels at the right end, nudged apart where lines meet
-            ends = sorted((data[kind, name][-1], name, color) for color, name in zip(t["series"], SPEED_VARIANTS))
+            ends = sorted(
+                (data[kind, name][-1], name, color) for color, name in zip(t["series"], SPEED_VARIANTS, strict=True)
+            )
             placed = []
-            for value, name, color in ends:
+            for value, name, _color in ends:
                 y = value
                 if placed and y < placed[-1] * 1.35:
                     y = placed[-1] * 1.35
@@ -298,7 +300,7 @@ def gradient():
     for theme, t in THEMES.items():
         fig, axes = plt.subplots(1, len(panels), figsize=(8, 1.9))
         fig.patch.set_facecolor(t["surface"])
-        for ax, (image, title) in zip(axes, panels):
+        for ax, (image, title) in zip(axes, panels, strict=True):
             density_axes(ax, image, 5, t["density"], vmax, t["surface"])
             ax.set_title(title, color=t["ink"], fontsize=9)
         save(fig, "gradient", theme)

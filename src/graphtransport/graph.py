@@ -67,7 +67,7 @@ class MarkovGraph:
         Qcoo = Q.tocsc().tocoo()
         edges: list[tuple[int, int]] = []
         kappas: list[float] = []
-        for i, j, q_ij in sorted(zip(Qcoo.row, Qcoo.col, Qcoo.data), key=lambda t: (t[1], t[0])):
+        for i, j, q_ij in sorted(zip(Qcoo.row, Qcoo.col, Qcoo.data, strict=True), key=lambda t: (t[1], t[0])):
             if i >= j:
                 continue
             q_ji = Q[j, i]
@@ -96,7 +96,7 @@ class MarkovGraph:
             D_rows[2 * e + 1], D_cols[2 * e + 1], D_vals[2 * e + 1] = y, e, Q[y, x]
         self.D = sparse.csr_matrix((D_vals, (D_rows, D_cols)), shape=(n, num_edges))
 
-    def with_mean(self, mean: AdmissibleMean) -> "MarkovGraph":
+    def with_mean(self, mean: AdmissibleMean) -> MarkovGraph:
         """The same graph with a different mean; shares the cached matrices."""
         other = object.__new__(type(self))
         other.__dict__.update(self.__dict__)

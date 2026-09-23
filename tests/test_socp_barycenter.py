@@ -3,7 +3,7 @@ import pytest
 
 cp = pytest.importorskip("cvxpy")
 
-from graphtransport import (
+from graphtransport import (  # noqa: E402
     ArithmeticMean,
     HarmonicMean,
     MarkovGraph,
@@ -96,11 +96,11 @@ def test_endpoint_potentials_and_kkt_stationarity():
     G = _triangle()
     nu, _, geos = barycenter_socp(G, REFS, LAM, N=3)
     assert np.all(nu > 1e-3)  # fully supported: no slack term in stationarity
-    for ref, geo in zip(REFS, geos):
+    for ref, geo in zip(REFS, geos, strict=True):
         indep = geodesic_socp(G, ref, nu, N=3)
         for a, b in ((geo.phi1, indep.phi1), (geo.phi0, indep.phi0)):
             np.testing.assert_allclose(graph_gradient(G, a), graph_gradient(G, b), atol=1e-3 * _grad_scale(G, b))
-    stationarity = sum(l * geo.phi1 for l, geo in zip(LAM, geos))
+    stationarity = sum(w * geo.phi1 for w, geo in zip(LAM, geos, strict=True))
     assert _grad_scale(G, stationarity) < 1e-5 * _grad_scale(G, geos[0].phi1)
 
 
@@ -131,9 +131,10 @@ def test_barycenter_and_analysis_round_trip_per_mean(theta):
     G = _triangle(theta)
     nu, J, geos = barycenter_socp(G, REFS, LAM, N=6)
     assert abs(nu @ G.pi - 1) < 1e-8 and nu.min() >= -1e-8
-    assert J == pytest.approx(sum(l * geodesic_socp(G, r, nu, N=6).W2 for l, r in zip(LAM, REFS)), rel=1e-4)
+    expected = sum(w * geodesic_socp(G, r, nu, N=6).W2 for w, r in zip(LAM, REFS, strict=True))
+    assert J == pytest.approx(expected, rel=1e-4)
     np.testing.assert_allclose(analyze_socp(G, nu, REFS, N=6), LAM, atol=2e-3)
-    stationarity = sum(l * geo.phi1 for l, geo in zip(LAM, geos))
+    stationarity = sum(w * geo.phi1 for w, geo in zip(LAM, geos, strict=True))
     assert _grad_scale(G, stationarity) < 1e-5 * _grad_scale(G, geos[0].phi1)
 
 

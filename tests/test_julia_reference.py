@@ -13,23 +13,23 @@ the Python code performs the same operations in the same order.
 import numpy as np
 import pytest
 from julia_values import (
-    JULIA_MU,
-    JULIA_DIFFUSION_COST_ROW0,
-    JULIA_BARYCENTER_EPS01_ITERS256,
-    JULIA_BARYCENTER2_EPS005_ITERS64,
-    JULIA_LOSS_GRADIENT_ALPHA_ITERS40,
-    JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40,
-    JULIA_W_LAMBDA_ITERS40,
-    JULIA_SIMPLEX_REGRESSION_LAMBDA,
-    JULIA_API_BARY_NU,
-    JULIA_API_BARY_J,
-    JULIA_API_GEO_W2,
-    JULIA_API_GEO_RHO_MID,
-    JULIA_API_TRANSPORT_COST,
     JULIA_API_ANALYSIS_LAMBDA,
-    JULIA_SOCP,
+    JULIA_API_BARY_J,
+    JULIA_API_BARY_NU,
+    JULIA_API_GEO_RHO_MID,
+    JULIA_API_GEO_W2,
+    JULIA_API_TRANSPORT_COST,
+    JULIA_BARYCENTER2_EPS005_ITERS64,
+    JULIA_BARYCENTER_EPS01_ITERS256,
+    JULIA_BARYCENTRIC_LOSS_ALPHA_ITERS40,
     JULIA_BSOCP,
+    JULIA_DIFFUSION_COST_ROW0,
     JULIA_LONG_TRANSPORT_LOG_MAP,
+    JULIA_LOSS_GRADIENT_ALPHA_ITERS40,
+    JULIA_MU,
+    JULIA_SIMPLEX_REGRESSION_LAMBDA,
+    JULIA_SOCP,
+    JULIA_W_LAMBDA_ITERS40,
 )
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list
@@ -154,7 +154,7 @@ def test_geodesic_socp_matches_julia():
         sol = geodesic_socp(G.with_mean(mean), refs[0], refs[1], N=4)
         assert sol.W2 == pytest.approx(ref["W2"], rel=1e-5), name
 
-        def close(got, want, tol, what):
+        def close(got, want, tol, what, name=name):
             # tolerances relative to each quantity's own scale: m0 is O(30) and
             # the potentials O(10), so a fixed atol would mean different things
             want = np.asarray(want, dtype=float)

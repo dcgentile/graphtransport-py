@@ -228,8 +228,8 @@ def _barycenter_sinkhorn(G: MarkovGraph, refs, lam, *, cost=None, epsilon=None, 
     K = regularize_cost(cost, epsilon)
     active = np.flatnonzero(lam > 0)
     plans = [sinkhorn_plan(K, mu[:, i], p, iters=iters) for i in active]
-    J = float(sum(lam[i] * np.sum(cost * P) for i, P in zip(active, plans)))
-    marginal_errors = [float(np.abs(P.sum(axis=1) - mu[:, i]).sum()) for i, P in zip(active, plans)]
+    J = float(sum(lam[i] * np.sum(cost * P) for i, P in zip(active, plans, strict=True)))
+    marginal_errors = [float(np.abs(P.sum(axis=1) - mu[:, i]).sum()) for i, P in zip(active, plans, strict=True)]
     info = {"cost": cost, "epsilon": epsilon, "iters": iters, "marginal_errors": marginal_errors, "method": "sinkhorn"}
     return p / G.pi, J, info
 

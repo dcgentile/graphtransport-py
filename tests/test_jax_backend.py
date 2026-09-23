@@ -4,11 +4,11 @@ import pytest
 jax = pytest.importorskip("jax")
 
 import jax.numpy as jnp  # noqa: E402
+from julia_values import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
 
 from graphtransport import MarkovGraph, markov_chain_from_edge_list  # noqa: E402
 from graphtransport.sinkhorn import bfs_hops, ground_cost, sinkhorn_barycenter, sinkhorn_differentiate  # noqa: E402
 from graphtransport.sinkhorn.backends import jax_backend  # noqa: E402
-from julia_values import JULIA_BARYCENTER_EPS01_ITERS256  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def test_grad_matches_hand_derived_backward_pass(problem):
     lam = np.array([0.5, 0.3, 0.2])
     for L in (6, 60):
 
-        def loss(c):
+        def loss(c, L=L):
             p = jax_backend.sinkhorn_barycenter(c, jnp.asarray(mu), cost, 0.1, iters=L)
             return 0.5 * jnp.sum((p - jnp.asarray(q)) ** 2)
 

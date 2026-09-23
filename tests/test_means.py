@@ -58,10 +58,10 @@ def test_known_values():
 
 def test_ordering_harmonic_geometric_logarithmic_arithmetic():
     s, t = _pairs()
-    h, g, l, a = (m(s, t) for m in (HarmonicMean(), GeometricMean(), LogarithmicMean(), ArithmeticMean()))
+    h, g, lg, a = (m(s, t) for m in (HarmonicMean(), GeometricMean(), LogarithmicMean(), ArithmeticMean()))
     assert np.all(h <= g + 1e-12)
-    assert np.all(g <= l + 1e-12)
-    assert np.all(l <= a + 1e-12)
+    assert np.all(g <= lg + 1e-12)
+    assert np.all(lg <= a + 1e-12)
 
 
 def test_logarithmic_series_branch_matches_closed_form_at_the_switch():

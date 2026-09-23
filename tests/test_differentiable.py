@@ -2,8 +2,6 @@
 shooting solve (implicit function theorem), and the policies for methods and
 fallbacks that are not differentiable."""
 
-import warnings
-
 import numpy as np
 import pytest
 import torch

@@ -273,8 +273,11 @@ def _torch_rk4_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, h: float):
     k3r, k3p, l3r, l3p = _torch_flow_tangent(G, rho + (h / 2) * k2r, phi + (h / 2) * k2p,
                                              d_rho + (h / 2) * l2r, d_phi + (h / 2) * l2p)  # fmt: skip
     k4r, k4p, l4r, l4p = _torch_flow_tangent(G, rho + h * k3r, phi + h * k3p, d_rho + h * l3r, d_phi + h * l3p)
-    return (rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r), phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p),
-            d_rho + (h / 6) * (l1r + 2 * l2r + 2 * l3r + l4r), d_phi + (h / 6) * (l1p + 2 * l2p + 2 * l3p + l4p))  # fmt: skip
+    rho_next = rho + (h / 6) * (k1r + 2 * k2r + 2 * k3r + k4r)
+    phi_next = phi + (h / 6) * (k1p + 2 * k2p + 2 * k3p + k4p)
+    d_rho_next = d_rho + (h / 6) * (l1r + 2 * l2r + 2 * l3r + l4r)
+    d_phi_next = d_phi + (h / 6) * (l1p + 2 * l2p + 2 * l3p + l4p)
+    return rho_next, phi_next, d_rho_next, d_phi_next
 
 
 def _torch_replay_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, schedule):

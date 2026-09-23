@@ -13,7 +13,6 @@ the finite-iteration barycenter loss with respect to the weights -- and
 from __future__ import annotations
 
 import warnings
-
 from typing import cast
 
 import numpy as np
@@ -84,10 +83,10 @@ def _sinkhorn_forward(coords, measures, K, iters: int):
     phi = np.empty((n, S, iters))
     p = np.full(n, 1.0 / n)
     with np.errstate(divide="ignore", invalid="ignore"):
-        for l in range(1, iters):
-            phi[:, :, l] = K.T @ (measures / (K @ b[:, :, l - 1]))
-            p = np.exp(np.log(phi[:, :, l]) @ coords)
-            b[:, :, l] = p[:, np.newaxis] / phi[:, :, l]
+        for it in range(1, iters):
+            phi[:, :, it] = K.T @ (measures / (K @ b[:, :, it - 1]))
+            p = np.exp(np.log(phi[:, :, it]) @ coords)
+            b[:, :, it] = p[:, np.newaxis] / phi[:, :, it]
     if not np.all(np.isfinite(p)):
         raise _underflow_error("sinkhorn_barycenter")
     return p, b, phi
@@ -175,13 +174,13 @@ def sinkhorn_differentiate(coords, measures, target, cost, epsilon: float, iters
     # Reverse over every forward iteration, slots iters-1 .. 1. Starting one
     # slot lower would drop the top term of the sum, which gives a wrong
     # gradient at small L (wrong sign at L = 2).
-    for l in range(iters - 1, 0, -1):
+    for it in range(iters - 1, 0, -1):
         for m in range(S):
-            w[m] += np.log(phi[:, m, l]) @ g
+            w[m] += np.log(phi[:, m, it]) @ g
             u = coords[m] * g - r[:, m]
-            x = K @ (u / phi[:, m, l])
-            y = measures[:, m] / (K @ b[:, m, l - 1]) ** 2
-            r[:, m] = -(K.T @ (x * y)) * b[:, m, l - 1]
+            x = K @ (u / phi[:, m, it])
+            y = measures[:, m] / (K @ b[:, m, it - 1]) ** 2
+            r[:, m] = -(K.T @ (x * y)) * b[:, m, it - 1]
         g = r.sum(axis=1)
     return p, w
 

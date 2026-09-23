@@ -50,8 +50,8 @@ def _mean_cone(cp, mean: AdmissibleMean, rx, ry, theta):
         return [cp.PowCone3D(rx + ry, rx + ry - 2 * theta, rx - ry, 0.5)]
     if isinstance(mean, QuadLogMean):
         thetas = [cp.Variable(theta.shape, nonneg=True) for _ in range(mean.K)]
-        cones = [cp.PowCone3D(rx, ry, tk, float(a)) for tk, a in zip(thetas, mean.alpha)]
-        return cones + [theta <= sum(float(w) * tk for w, tk in zip(mean.w, thetas))]
+        cones = [cp.PowCone3D(rx, ry, tk, float(a)) for tk, a in zip(thetas, mean.alpha, strict=True)]
+        return cones + [theta <= sum(float(w) * tk for w, tk in zip(mean.w, thetas, strict=True))]
     if isinstance(mean, LogarithmicMean):
         raise ValueError(
             "LogarithmicMean has no conic representation; use QuadLogMean(K) in the SOCP (K=8 is accurate to 1e-10)"
