@@ -17,6 +17,9 @@ jax = ["jax"]
 socp = ["cvxpy", "clarabel"]
 # notebooks/demo.ipynb; needs socp too
 notebook = ["matplotlib", "nbformat", "nbclient", "ipykernel"]
+# the documentation site (mkdocs.yml); its figures (docs/figures/make_figures.py) also need socp.
+# MkDocs 2 drops the plugin system mkdocstrings needs.
+docs = ["mkdocs<2", "mkdocs-material", "mkdocstrings[python]", "matplotlib"]
 
 [tool.pytest.ini_options]
 pythonpath = ["tests"]

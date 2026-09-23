@@ -1,0 +1,64 @@
+site_name: graphtransport
+site_description: Optimal transport on graphs, in Python
+site_url: https://dcgentile.github.io/graphtransport-py/
+repo_url: https://github.com/dcgentile/graphtransport-py
+repo_name: dcgentile/graphtransport-py
+docs_dir: docs
+exclude_docs: |
+  figures/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Dark theme
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Light theme
+
+nav:
+  - Home: index.md
+  - Choosing a method: methods.md
+  - Differentiable geodesics: differentiable.md
+  - Gallery: gallery.md
+  - API reference: api.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 3
+            members_order: source
+            show_signature_annotations: false
+            separate_signature: true
