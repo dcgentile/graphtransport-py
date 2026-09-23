@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "graphtransport"
 version = "0.1.0"
-description = "Python port of GraphTransportation.jl: optimal transport and Wasserstein barycenters on graphs."
+description = "Optimal transport on graphs: geodesics, distances and barycenters, differentiable with PyTorch."
 requires-python = ">=3.10"
 # torch is the shooting solver's autodiff: the exact Jacobian of the Hamiltonian flow
 dependencies = ["numpy", "scipy", "torch"]
