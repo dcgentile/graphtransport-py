@@ -1,5 +1,7 @@
 # graphtransport
 
+**Documentation: <https://dcgentile.github.io/graphtransport-py/>**
+
 Python port of [GraphTransportation.jl](../GraphTransportation.jl), aimed at being
 usable directly in machine learning pipelines (e.g. as a differentiable layer or
 graph/dataset utility), not just a 1:1 translation of the Julia API.
