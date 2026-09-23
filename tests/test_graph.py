@@ -95,11 +95,11 @@ def test_with_mean_shares_cached_matrices():
 
 
 def test_with_mean_preserves_subclass():
-    class Labelled(MarkovGraph):
+    class Labeled(MarkovGraph):
         pass
 
-    L = Labelled(*markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)]))
-    assert type(L.with_mean(HarmonicMean())) is Labelled
+    L = Labeled(*markov_chain_from_edge_list([(0, 1), (1, 2), (0, 2)]))
+    assert type(L.with_mean(HarmonicMean())) is Labeled
 
 
 def test_mean_must_be_an_instance():

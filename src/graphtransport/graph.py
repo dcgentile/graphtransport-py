@@ -45,7 +45,7 @@ class MarkovGraph:
             like the graph itself, so it lives here rather than as a per-call
             option: every geodesic, barycenter and analysis computed from the
             same MarkovGraph uses the same metric, and a target synthesized on
-            one graph is analysed with the mean it was made with.
+            one graph is analyzed with the mean it was made with.
     """
 
     def __init__(self, Q, pi, *, rtol: float = 1e-12, mean: AdmissibleMean | None = None):

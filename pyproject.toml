@@ -30,7 +30,6 @@ Paper = "https://arxiv.org/abs/2603.26940"
 
 [project.optional-dependencies]
 dev = ["pytest"]
-torch = []  # torch is now a core dependency; kept so "[torch]" installs still resolve
 jax = ["jax"]
 socp = ["cvxpy", "clarabel"]
 # notebooks/demo.ipynb; needs socp too

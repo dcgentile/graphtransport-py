@@ -77,7 +77,7 @@ def hypercube_markov_chain():
 
 def weighted_hypercube_markov_chain(rng=None):
     """The 4-cube with random integer edge weights in {2, ..., 20} (a
-    symmetrised draw of two uniform integers in 1..10 per ordered pair), so
+    symmetrized draw of two uniform integers in 1..10 per ordered pair), so
     the stationary distribution is non-uniform. Julia draws fresh weights
     on every call; here ``rng`` (a seed or numpy Generator) makes the draw
     reproducible."""
@@ -101,7 +101,7 @@ def wheel_markov_chain():
 
 
 def grid_markov_chain(n: int):
-    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbour edges), n >= 2."""
+    """The n x n grid graph (n^2 nodes, row-major, nearest-neighbor edges), n >= 2."""
     if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 2:
         raise ValueError(f"grid_markov_chain needs an integer n >= 2, got {n!r}")
     edges = []

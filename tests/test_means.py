@@ -27,7 +27,7 @@ def test_admissibility(theta: AdmissibleMean):
     assert np.all(value > 0)
     np.testing.assert_allclose(value, theta(t, s))  # symmetric
     np.testing.assert_allclose(theta(3 * s, 3 * t), 3 * value)  # 1-homogeneous
-    np.testing.assert_allclose(theta(s, s), s)  # normalised
+    np.testing.assert_allclose(theta(s, s), s)  # normalized
     # concave along the diagonal direction: theta((s+s')/2, (t+t')/2) >= mean of thetas
     s2, t2 = _pairs(seed=1)
     assert np.all(theta((s + s2) / 2, (t + t2) / 2) >= (value + theta(s2, t2)) / 2 - 1e-12)

@@ -10,8 +10,8 @@ numerical algorithm:
   (``fallback=False`` raises instead).
 - ``"socp"``: a second-order-cone program (needs ``graphtransport[socp]``).
   Handles densities supported on part of the graph, which shooting cannot;
-  time-discretisation error O(1/N).
-- ``"sinkhorn"``: entropic regularisation for a ground cost -- a different
+  time-discretization error O(1/N).
+- ``"sinkhorn"``: entropic regularization for a ground cost -- a different
   object from the other two, which compute the same discrete transport
   geodesic.
 
@@ -19,7 +19,7 @@ The default diverges from the Julia package, which defaults to ``:socp``.
 What shooting offers is fourth-order accuracy in time (RK4, against the
 SOCP's first order), gradients and no conic solver, not speed:
 the SOCP at its default N=10 is faster on the graphs measured (see the
-README). Shooting also cannot take boundary-supported data, and gets stiff
+documentation's "Choosing a method"). Shooting also cannot take boundary-supported data, and gets stiff
 as densities approach zero; both are reasons to pass ``method="socp"``, and
 the fallback warning says so.
 
@@ -50,7 +50,7 @@ from graphtransport.sinkhorn.core import (
 
 # A density must integrate to 1 against pi to this tolerance. It is loose
 # enough to accept the output of an iterative solver (a barycenter fed back
-# into analysis) and tight enough to catch a density that was never normalised.
+# into analysis) and tight enough to catch a density that was never normalized.
 MASS_TOL = 1e-6
 
 
@@ -124,7 +124,7 @@ def _check_kwargs(method: str, kwargs: dict, what: str) -> None:
 
 # METHOD_KEYWORDS is per method, and the shooting keywords differ between entry
 # points (h is barycenter's, phi0_inits analysis's), so a keyword valid for
-# another shooting entry point used to pass the check above and fail far away
+# another shooting entry point would pass the check above and fail far away,
 # as "analyze_shooting() got an unexpected keyword argument 'maxiters'". The
 # accepted sets are read from the functions each entry point calls, so they
 # cannot drift; fallback and floor_rtol belong to the API wrappers.
@@ -371,12 +371,7 @@ class _explain_shooting_failure:
     can need more damped Newton steps than maxiters allows: on a 10x10 grid,
     corner bumps over a floor of 1e-3 converge in 112 iterations, in Julia as
     here, against the default 50. So the message reports the failure and the
-    smallest input density, and names both causes rather than guessing one.
-
-    (An earlier version blamed "the boundary" for every failure, then "long
-    transports making single shooting ill-conditioned". The long-transport
-    failures were the forward-difference Jacobian's; with the exact one,
-    Newton converges where Julia does.)"""
+    smallest input density, and names both causes rather than guessing one."""
 
     def __init__(self, what: str, **densities):
         self.what, self.densities = what, densities
@@ -435,7 +430,7 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         retry = f" Newton ran out of iterations, so raising {retry} may let shooting solve it exactly." if retry else ""
         warnings.warn(
             f"{what}: {summary}. Falling back to method='socp' with its "
-            "default N=10 (time-discretisation error O(1/N)); pass method='socp' to choose N, or fallback=False "
+            "default N=10 (time-discretization error O(1/N)); pass method='socp' to choose N, or fallback=False "
             f"to raise instead.{retry}",
             ShootingFallbackWarning,
             stacklevel=4,  # _with_fallback < the method wrapper < the entry point < the caller
@@ -623,15 +618,15 @@ def geodesic(G: MarkovGraph, rhoA, rhoB, *, method: str = DEFAULT_METHOD, **kwar
     steps, default 150; rho then has nsteps + 1 columns), ``tol``,
     ``maxiters``, ``phi0_init``, ``segments`` (default "auto": single
     shooting, switching to multiple shooting on a long transport; an integer
-    fixes it -- see shooting.log_map and the README), ``verbose``. Honours every AdmissibleMean, including the exact
+    fixes it -- see shooting.log_map and the README), ``verbose``. Honors every AdmissibleMean, including the exact
     LogarithmicMean. phi0 and phi1 use the SOCP's W2-gradient convention, so
     the two methods' potentials are directly comparable; status is
     "converged".
 
     method="socp": a single second-order-cone program
     (socp.geodesic_socp). Handles any densities, including boundary-supported
-    ones; time-discretisation error O(1/N). Keywords: ``N``, ``solver``,
-    ``check``, ``verbose``, plus solver options. Honours every conic
+    ones; time-discretization error O(1/N). Keywords: ``N``, ``solver``,
+    ``check``, ``verbose``, plus solver options. Honors every conic
     AdmissibleMean in G.mean (QuadLogMean for the logarithmic mean).
 
     method="sinkhorn": the entropic displacement interpolation for a ground
@@ -716,7 +711,7 @@ def _reject_torch(what: str, *values) -> None:
 
 def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwargs):
     """The discrete transport barycenter of the reference densities ``refs``
-    with weights ``lam``: the minimiser of J(nu) = sum_i lam_i W^2(refs_i, nu).
+    with weights ``lam``: the minimizer of J(nu) = sum_i lam_i W^2(refs_i, nu).
 
     method="shooting" (default): intrinsic gradient descent with shooting
     geodesics (shooting.barycenter_shooting). Every reference with
@@ -729,7 +724,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     each log map, see shooting.log_map), ``nsteps``, ``init``, ``verbose``.
     First order, so it
     converges linearly; method="socp" solves the same problem to its global
-    optimum of its discretisation and is the reference.
+    optimum of its discretization and is the reference.
 
     method="socp": one joint second-order-cone program
     (socp.barycenter_socp), solved to its global optimum.
@@ -739,7 +734,7 @@ def barycenter(G: MarkovGraph, refs, lam, *, method: str = DEFAULT_METHOD, **kwa
     be shorter than ``refs`` and ``geodesics[k]`` need not be the geodesic of
     ``refs[k]``. Keywords: ``N``, ``solver``, ``check``, ``verbose``.
 
-    method="sinkhorn": the entropically regularised Wasserstein barycenter
+    method="sinkhorn": the entropically regularized Wasserstein barycenter
     for a ground cost (Benamou et al. 2015; Bonneel, Peyré & Cuturi 2016).
     This is a different object from the discrete transport barycenter of
     the other methods: it depends on ``cost`` (see ground_cost) and
@@ -773,7 +768,7 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     ``return_system``, ``qp_method``, ``qp_solver``.
 
     A barycenter is recovered to solver tolerance only by the method that
-    synthesised it; the others recover it to their discretisation error,
+    synthesized it; the others recover it to their discretization error,
     since each checks stationarity in its own discrete convention.
 
     method="socp": socp.analyze_socp -- geodesic SOCPs from the
@@ -789,7 +784,7 @@ def analysis(G: MarkovGraph, target, refs, *, method: str = DEFAULT_METHOD, **kw
     ``compute_condition`` raise. Requires ``cost`` and ``epsilon``; keywords
     ``iters`` (default 256) and ``alpha0`` (initial pre-softmax point,
     default 0 = uniform weights). Recovers exactly the weights of a
-    barycenter synthesised by barycenter(method="sinkhorn") with the same
+    barycenter synthesized by barycenter(method="sinkhorn") with the same
     cost, epsilon and iters.
 
     Returns lam_hat on the simplex.

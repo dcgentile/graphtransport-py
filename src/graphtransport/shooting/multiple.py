@@ -11,8 +11,7 @@ with the residuals
 
 at each junction and rho_{K-1}(end) - target at t = 1. Each segment is short,
 so its flow map bends less than the whole transport's, and on long transports
-Newton needs fewer steps: on a 10x10 grid with bumps in opposite corners, 8
-iterations at K=4 against single shooting's 19, 4.9 s against 7.5 s. Each
+Newton needs fewer steps (about half as many, corner to corner on a grid). Each
 step costs more -- a Jacobian carries about twice as many tangents -- so on
 short transports single shooting stays cheaper.
 
@@ -186,15 +185,15 @@ def solve_multiple_shooting(G: MarkovGraph, nu, target, *, segments: int, nsteps
     ``init`` is None or (rho_starts, phi_starts), each (n, segments): the
     state at the start of every segment. The default puts the junction
     densities on the straight line from nu to target and each segment's
-    potential at the linearised geodesic between consecutive junctions.
+    potential at the linearized geodesic between consecutive junctions.
 
     ``give_up_early`` (log_map's segments="auto") raises as soon as Newton is
     evidently stalling, so the caller can go back to single shooting: if the
     first step is cut to 1/8 or less, or the residual has not halved after
-    three steps. Every multiple-shooting solve that converged on the n x n
-    grids measured took a first step of 1/4 or more and halved its residual
-    within three; the one that failed (7x7 corner bumps, 1/16, then residual
-    41 -> 39 over 8 steps) spent ~10 s before auto could fall back.
+    three steps. On the grid transports measured, every multiple-shooting
+    solve that converged took a first step of 1/4 or more and halved its
+    residual within three steps, while the ones that stalled did neither
+    (tests/test_shooting_multiple.py has a stalling case).
 
     Returns (rho_starts, phi_starts, iters, residual). phi_starts are gauge
     fixed; the flow's potential drifts by a constant along a segment, so a

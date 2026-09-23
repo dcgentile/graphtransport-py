@@ -25,6 +25,7 @@ here take and return numpy arrays.
 
 from __future__ import annotations
 
+import sys
 import warnings
 
 import numpy as np
@@ -42,11 +43,20 @@ class TorchThreadsWarning(UserWarning):
 _threads_warned = False
 
 
+def _stacklevel_outside_package() -> int:
+    """The warnings.warn stacklevel of the first caller outside graphtransport,
+    so a warning raised deep in the solver points at the user's own line."""
+    frame, level = sys._getframe(1), 1
+    while frame is not None and frame.f_globals.get("__name__", "").startswith("graphtransport"):
+        frame, level = frame.f_back, level + 1
+    return level
+
+
 def _warn_about_threads() -> None:
-    """Measured on the test suite (graphs up to 16x16): the same wall time
-    with torch's default 10 threads as with one, at 3.6x the CPU time. Several
-    solves run in parallel would oversubscribe the machine. Changing torch's
-    global thread count is the caller's decision, so this only says so."""
+    """At the graph sizes shooting is for, torch's thread pool adds CPU time
+    without adding speed, and several solves run in parallel would
+    oversubscribe the machine. Changing torch's global thread count is the
+    caller's decision, so this only says so, once."""
     global _threads_warned
     if _threads_warned:
         return
@@ -56,10 +66,10 @@ def _warn_about_threads() -> None:
         warnings.warn(
             f"torch is using {threads} threads. The shooting solver runs many small torch operations, which "
             "gain nothing from threads at graph sizes up to a few hundred nodes but cost several times the CPU "
-            "time (3.6x on the test suite). Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially "
-            "when running solves in parallel. Filter TorchThreadsWarning to silence this.",
+            "time. Consider torch.set_num_threads(1), or OMP_NUM_THREADS=1, especially when running solves in "
+            "parallel. Filter TorchThreadsWarning to silence this.",
             TorchThreadsWarning,
-            stacklevel=3,
+            stacklevel=_stacklevel_outside_package(),
         )
 
 
@@ -218,9 +228,10 @@ def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
     This is forward-mode differentiation written out, the tangent-linear model:
     the chain rule through the graph is linear and explicit here, and only the
     elementwise second derivatives of the mean come from the mean itself
-    (closed forms, or one autodiff call on |E|-sized vectors). Carrying the k tangents as one batch is what makes the
-    Jacobian cheap: torch.func.jacfwd pushes them through vmap instead, which
-    was 40x slower on a 5x5 grid."""
+    (closed forms, or one autodiff call on |E|-sized vectors). Carrying the k
+    tangents as one batch is what makes the Jacobian cheap; torch.func.jacfwd
+    pushes them through vmap instead, one small operation per tangent, and is
+    much slower."""
     x, y, q_xy, q_yx = _torch_edges(G)
     mean = G.mean
     g = phi[x] - phi[y]
@@ -254,7 +265,7 @@ def _torch_flow_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi):
 
 
 def _torch_rk4_tangent(G: MarkovGraph, rho, phi, d_rho, d_phi, h: float):
-    """One RK4 step of the state and, linearised, of the tangent block."""
+    """One RK4 step of the state and, linearized, of the tangent block."""
     k1r, k1p, l1r, l1p = _torch_flow_tangent(G, rho, phi, d_rho, d_phi)
     k2r, k2p, l2r, l2p = _torch_flow_tangent(G, rho + (h / 2) * k1r, phi + (h / 2) * k1p,
                                              d_rho + (h / 2) * l1r, d_phi + (h / 2) * l1p)  # fmt: skip
@@ -374,10 +385,3 @@ def integrate_hamiltonian(G: MarkovGraph, rho0, phi0, *, nsteps: int = 150, T: f
                                                      max_halvings, path=True)  # fmt: skip
     return rho_path.numpy(), phi_path.numpy()
 
-
-def _integrate_end(G: MarkovGraph, rho0, phi0, nsteps: int, T: float, floor_val: float, max_halvings: int = 4):
-    """The flow's end state only, on numpy arrays, without storing the path and
-    without the argument checks (callers have done them). Accepts a trailing
-    batch axis; the columns share one step schedule."""
-    rho, phi, _, _ = _torch_integrate(G, _as_tensor(rho0), _as_tensor(phi0), nsteps, T, floor_val, max_halvings)
-    return rho.numpy(), phi.numpy()

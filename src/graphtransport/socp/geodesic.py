@@ -128,7 +128,7 @@ def endpoint_potentials(G: MarkovGraph, block: dict, *, weight: float = 1.0):
     objective (lam_i in the barycenter program), divided back out so the
     result is always the potential of the unweighted geodesic.
 
-    cvxpy canonicalises ``lhs == rhs`` as ``lhs - rhs == 0`` and reports the
+    cvxpy canonicalizes ``lhs == rhs`` as ``lhs - rhs == 0`` and reports the
     multiplier y with d(optimum)/d(rhs) = -y, so the sign is flipped here
     (calibrated against finite differences and the two-node closed form in
     the tests, as the Julia package does for JuMP's convention).

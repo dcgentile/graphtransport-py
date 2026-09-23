@@ -42,7 +42,7 @@ def barycenter_shooting(G: MarkovGraph, refs, lam, *, h: float = 1.0, maxiters: 
     unreachable reference or an increase of J, and doubled back toward its
     initial value after an accepted step. The descent is first order, so it
     converges linearly; barycenter_socp, the global optimum of its
-    discretisation, remains the reference.
+    discretization, remains the reference.
 
     Returns (nu, J, info), info = {"iters", "status", "J_hist", "grad_hist",
     "h"}: the objective and the Riemannian gradient norm per iteration

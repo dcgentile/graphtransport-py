@@ -18,7 +18,7 @@ solves -- the RK4 flow along the step schedule the shot took -- not merely
 for its continuous limit, so they agree with finite differences of the
 returned values.
 
-Inputs are normalised by their pi-mass inside the graph, so a gradient is
+Inputs are normalized by their pi-mass inside the graph, so a gradient is
 defined in every direction and the derivative along a pure rescaling of a
 density is zero. Tensors are float64 on the CPU.
 
@@ -56,7 +56,7 @@ def _torch_potential(G: MarkovGraph, z: torch.Tensor) -> torch.Tensor:
 class _LogMapPotential(torch.autograd.Function):
     """z* = the reduced initial potential of the geodesic from nu to target,
     with an implicit-function-theorem backward. nu and target must be
-    probability densities w.r.t. G.pi (the caller normalises them)."""
+    probability densities w.r.t. G.pi (the caller normalizes them)."""
 
     @staticmethod
     def forward(ctx, nu, target, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
@@ -112,12 +112,12 @@ def _torch_replay_path(G: MarkovGraph, rho, phi, schedule):
     return torch.stack(rho_path, dim=1), torch.stack(phi_path, dim=1)
 
 
-def _normalise(G: MarkovGraph, rho: torch.Tensor) -> torch.Tensor:
+def _normalize(G: MarkovGraph, rho: torch.Tensor) -> torch.Tensor:
     return rho / (rho @ torch.as_tensor(G.pi, dtype=_DTYPE))
 
 
 def _solve(G, rhoA, rhoB, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments):
-    a, b = _normalise(G, rhoA), _normalise(G, rhoB)
+    a, b = _normalize(G, rhoA), _normalize(G, rhoB)
     z = _LogMapPotential.apply(a, b, G, nsteps, tol, maxiters, floor_rtol, verbose, phi0_init, segments)
     return a, _torch_potential(G, z)
 

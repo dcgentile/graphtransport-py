@@ -59,7 +59,7 @@ def regularize_cost(cost, epsilon):
 def sinkhorn_barycenter(coords, measures, cost, epsilon, *, iters: int = 256):
     """Entropic Wasserstein barycenter of the columns of ``measures`` (shape
     (n, S), probability vectors) with weights ``coords`` (length S) for the
-    ground ``cost`` and regularisation ``epsilon``; differentiable in
+    ground ``cost`` and regularization ``epsilon``; differentiable in
     ``coords``, ``measures`` and ``cost``.
 
     Inputs may be arrays or array-likes; they are promoted to the dtype of

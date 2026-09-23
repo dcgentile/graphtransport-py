@@ -33,7 +33,7 @@ def _directional_check(G, f, x0, grad, seed, h=1e-5, rtol=1e-7):
     # Random directions, mass-changing ones included. The API rejects a density
     # whose mass is off by more than 1e-6 -- the guard against passing a
     # probability vector for a pi-density -- so the perturbed inputs are
-    # renormalised; the solver normalises inside the graph, so the gradient at
+    # renormalized; the solver normalizes inside the graph, so the gradient at
     # mass 1 is the gradient of that composition.
     pi = torch.tensor(G.pi)
     rng = np.random.default_rng(seed)

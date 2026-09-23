@@ -57,11 +57,11 @@ def test_wheel_hub_degree():
 
 def test_grid3_adjacency_hand_checked():
     Q, pi = grid_markov_chain(3)
-    neighbours = {i: set(np.flatnonzero(Q[i])) for i in range(9)}
-    assert neighbours[0] == {1, 3}
-    assert neighbours[4] == {1, 3, 5, 7}
-    assert neighbours[8] == {5, 7}
-    # pi proportional to degree: corners 2, edges 3, centre 4, total 24
+    neighbors = {i: set(np.flatnonzero(Q[i])) for i in range(9)}
+    assert neighbors[0] == {1, 3}
+    assert neighbors[4] == {1, 3, 5, 7}
+    assert neighbors[8] == {5, 7}
+    # pi proportional to degree: corners 2, edges 3, center 4, total 24
     np.testing.assert_allclose(pi[[0, 2, 6, 8]], 2 / 24)
     np.testing.assert_allclose(pi[[1, 3, 5, 7]], 3 / 24)
     assert pi[4] == pytest.approx(4 / 24)

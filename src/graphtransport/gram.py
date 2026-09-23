@@ -37,12 +37,12 @@ def simplex_qp(A, *, method: str = "auto", solver=None) -> np.ndarray:
     cvxpy when installed, otherwise scipy. Both agree to the conic solver's
     tolerance (~1e-8).
 
-    The minimiser is invariant under A -> c A (c > 0), so A is divided by its
+    The minimizer is invariant under A -> c A (c > 0), so A is divided by its
     largest entry first: a conic solver stops on absolute tolerances, and a
     Gram matrix of nearby measures (entries ~ W^2, possibly 1e-8 or less)
     would otherwise be "solved" at its starting point, uniform weights. A zero
     A makes every lam optimal and returns uniform weights. The result is
-    projected onto the simplex (clip at 0, renormalise) to remove solver
+    projected onto the simplex (clip at 0, renormalize) to remove solver
     round-off. Raises if A is not square, not finite, or not PSD.
     """
     if method not in QP_METHODS:

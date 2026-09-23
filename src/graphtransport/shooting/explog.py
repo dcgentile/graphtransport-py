@@ -16,12 +16,10 @@ natural next step if larger graphs are needed.
 The Jacobian is exact, as in the Julia original, which differentiates the
 flow map with ForwardDiff: here the torch flow's tangent-linear model
 (shooting.hamiltonian) is carried along the step schedule the shot took --
-forward-mode differentiation, with the n - 1 tangents in one batch.
-An earlier forward-difference Jacobian was accurate to ~1e-7 near the
-initial guess but not along the Newton path of a long transport, where the
-flow map bends sharply: on a 10x10 grid, two corner bumps, its error grew
-from 4e-7 to 2e-3 by the sixth iteration, the Newton direction turned by a
-degree, and the line search failed where Julia converges in 19 iterations.
+forward-mode differentiation, with the n - 1 tangents in one batch. It has
+to be exact: a finite-difference Jacobian loses accuracy along the Newton path
+of a long transport, where the flow map bends sharply, and Newton then stalls
+where the exact Jacobian converges.
 """
 
 from __future__ import annotations
@@ -156,7 +154,7 @@ def solve_weighted_laplacian(G: MarkovGraph, nu, b) -> np.ndarray:
     b must be orthogonal to the constants (sum(b) == 0), as every right-hand
     side arising here is: pi * (target - nu) for two probability densities,
     or grad^T(kappa m) for any momentum. Implemented as the rank-one
-    regularisation (L + pi pi^T) phi = b, which for such b has the same
+    regularization (L + pi pi^T) phi = b, which for such b has the same
     solution and enforces the gauge by itself (summing both sides gives
     (1^T pi)(pi^T phi) = 0).
     """
@@ -293,11 +291,11 @@ def _log_map_multiple(G, nu, target, phi0_init, tol, maxiters, nsteps, floor_val
 
 # segments="auto": after single shooting's first Newton step, switch to
 # multiple shooting with _AUTO_SEGMENTS segments if the line search had to cut
-# that step to _AUTO_SWITCH_STEP or less. Measured on n x n grids (5-12):
-# short transports (near-uniform densities) take full first steps, alpha = 1;
-# medium ones (a corner bump to the centre) 0.125-0.5; long ones (corner to
-# corner) 0.0625-0.125. K=8 was fastest on the long ones (32 s against 71 s
-# on 256 nodes), and on short ones every K > 1 was slower.
+# that step to _AUTO_SWITCH_STEP or less. On grid transports the first step
+# separates the cases: short ones (near-uniform densities) take full steps,
+# long ones (corner to corner) steps of 1/8 or less. K=8 was the fastest fixed
+# K on long transports, and every K > 1 was slower on short ones (the timings
+# are in the documentation's "Choosing a method").
 _AUTO_SWITCH_STEP = 0.25
 _AUTO_SEGMENTS = 8
 
@@ -314,7 +312,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     by backtracking on ||F||_pi, and a step whose trajectory hits the
     positivity floor counts as a failed step and is shortened.
 
-    Initialisation is the linearised geodesic L(nu) phi0 = pi * (target - nu),
+    Initialization is the linearized geodesic L(nu) phi0 = pi * (target - nu),
     exact to first order in target - nu, or ``phi0_init`` if given -- the
     warm-start mechanism: callers keep their own phi0 from a nearby solve. If
     the first-order guess overshoots through the positivity floor, as it does
@@ -365,7 +363,7 @@ def log_map(G: MarkovGraph, nu, target, *, phi0_init=None, tol: float = 1e-9, ma
     # component of the residual that Newton cannot reduce. _check_mass admits
     # gaps up to 1e-8 -- the output of an iterative solver, a barycenter from
     # the SOCP say, is typically off by ~1e-9 -- which would make a tol below
-    # the gap unreachable. Renormalising removes that floor at the cost of a
+    # the gap unreachable. Renormalizing removes that floor at the cost of a
     # perturbation of the same, negligible, size.
     nu = nu / (nu @ G.pi)
     target = target / (target @ G.pi)
@@ -488,8 +486,8 @@ def analyze_shooting(G: MarkovGraph, target, refs, *, nsteps: int = 150, tol: fl
     multiple shooting for each (see log_map; default "auto"); ``phi0_inits``, if given, holds one warm-start
     potential per reference.
 
-    This checks stationarity in the Hamiltonian flow's discretisation, which
-    differs from barycenter_socp's, so a barycenter synthesised by the SOCP is
+    This checks stationarity in the Hamiltonian flow's discretization, which
+    differs from barycenter_socp's, so a barycenter synthesized by the SOCP is
     recovered only to O(h) in the SOCP's time step, not to solver tolerance.
 
     Returns lam_hat, or (lam_hat, A) with return_system=True.

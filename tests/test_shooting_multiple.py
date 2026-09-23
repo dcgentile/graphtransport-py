@@ -122,7 +122,7 @@ def test_the_long_transport_agrees_with_the_socp(long_pair, long_solves):
     G, A, B = long_pair
     W2 = long_solves[1].W2
     socp10, socp40 = (geodesic(G, A, B, method="socp", N=N).W2 for N in (10, 40))
-    # the SOCP's time-discretisation error shrinks towards the shooting value
+    # the SOCP's time-discretization error shrinks towards the shooting value
     assert abs(socp40 - W2) < abs(socp10 - W2) < 1.0
     assert socp40 == pytest.approx(W2, rel=1e-3)
 

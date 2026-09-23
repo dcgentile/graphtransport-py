@@ -2,7 +2,7 @@
 
 Ported from GraphTransportation.jl's core/Means.jl. An admissible mean
 theta(s, t) is continuous, symmetric, positively 1-homogeneous, concave,
-positive on (0, inf)^2 and normalised so theta(s, s) = s (Maas 2011). The
+positive on (0, inf)^2 and normalized so theta(s, s) = s (Maas 2011). The
 metric is ||grad phi||^2_rho = sum_e kappa_e theta(rho_x, rho_y) (grad phi)_e^2;
 concavity is what makes the action m^2/theta jointly convex.
 
@@ -301,7 +301,7 @@ class QuadLogMean(AdmissibleMean):
         if K < 1:
             raise ValueError("QuadLogMean needs K >= 1 nodes")
         # numpy's leggauss gives nodes on [-1, 1] with weights summing to 2;
-        # map to [0, 1] and normalise the weights to 1.
+        # map to [0, 1] and normalize the weights to 1.
         x, w = np.polynomial.legendre.leggauss(K)
         self.alpha = (x + 1) / 2
         self.w = w / w.sum()

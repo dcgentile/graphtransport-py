@@ -5,10 +5,10 @@ Each backend module exposes the same small interface --
 ``sinkhorn_barycenter(coords, measures, cost, epsilon, *, iters=256)`` --
 built from that framework's array ops, so the barycenter is differentiable
 with respect to the weights (and the measures) by the framework's own
-autograd. Callers pick a backend by which module they import; each is an
-optional dependency (``pip install graphtransport[torch]`` /
-``graphtransport[jax]``) and importing a module without its framework
-installed raises an ImportError with an install hint.
+autograd. Callers pick a backend by which module they import. torch is a
+core dependency; JAX is optional (``pip install graphtransport[jax]``), and
+importing the JAX module without it raises an ImportError with an install
+hint.
 
 The numpy implementation in ``graphtransport.sinkhorn.core`` carries the
 hand-derived backward pass and remains the reference; the backends are

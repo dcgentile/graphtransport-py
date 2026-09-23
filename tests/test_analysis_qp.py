@@ -91,7 +91,7 @@ def test_potential_gram_qp_recovers_weights_of_a_stationary_point(method):
 
 
 def _planted(seed=0):
-    """A Gram matrix whose simplex minimiser is exactly (0.5, 0.3, 0.2), value 0."""
+    """A Gram matrix whose simplex minimizer is exactly (0.5, 0.3, 0.2), value 0."""
     rng = np.random.default_rng(seed)
     lam = np.array([0.5, 0.3, 0.2])
     V = rng.normal(size=(3, 12))
@@ -102,7 +102,7 @@ def _planted(seed=0):
 @pytest.mark.parametrize("method", METHODS)
 @pytest.mark.parametrize("scale", [1e-16, 1e-12, 1e-8, 1e-4, 1.0, 1e4, 1e8])
 def test_simplex_qp_is_scale_invariant(method, scale):
-    # Before normalising A, cvxpy returned an error of 1e-2 at scale 1e-8 and
+    # Before normalizing A, cvxpy returned an error of 1e-2 at scale 1e-8 and
     # uniform weights at 1e-12, reporting "optimal" both times.
     A, lam_true = _planted()
     np.testing.assert_allclose(simplex_qp(scale * A, method=method), lam_true, atol=1e-7)

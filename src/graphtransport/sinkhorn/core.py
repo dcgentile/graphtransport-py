@@ -95,11 +95,11 @@ def _sinkhorn_forward(coords, measures, K, iters: int):
 def sinkhorn_barycenter(coords, measures, cost, epsilon: float, *, iters: int = 256) -> np.ndarray:
     """Entropic Wasserstein barycenter of the columns of `measures`
     (probability vectors, shape (n, S)) with weights `coords` (length S,
-    summing to 1) for the ground `cost` and regularisation `epsilon`.
+    summing to 1) for the ground `cost` and regularization `epsilon`.
 
     `iters` is the Sinkhorn budget (slots; L = iters - 1 iterations, as in
     the Julia original, so results agree at equal `iters`). The result is
-    not renormalised: it is a probability vector to solver tolerance once
+    not renormalized: it is a probability vector to solver tolerance once
     the iterations have converged.
     """
     K = regularize_cost(cost, epsilon)
@@ -216,7 +216,7 @@ def _loss_and_gradient(alpha, measures, target, cost, epsilon: float, iters: int
 
 def simplex_regression(measures, target, cost, epsilon: float, *, iters: int = 256, alpha0=None, **minimize_options) -> np.ndarray:
     """Wasserstein barycentric coordinates of `target` with respect to the
-    columns of `measures` (Bonneel, Peyré & Cuturi 2016, §4.3): minimise
+    columns of `measures` (Bonneel, Peyré & Cuturi 2016, §4.3): minimize
     E_L(lambda) = 1/2 ||P^(L)(lambda) - target||^2 over the simplex by
     L-BFGS on alpha with lambda = softmax(alpha), using the analytic gradient
     from `sinkhorn_differentiate`. alpha0 = 0 (the default) is the paper's

@@ -177,7 +177,7 @@ def test_log_map_damps_an_initial_guess_that_overshoots_the_floor():
         return m / (m @ G.pi)
 
     nu, mu = concentrated(0), concentrated(24)  # opposite corners
-    # Premise: the undamped linearised guess really does hit the floor here;
+    # Premise: the undamped linearized guess really does hit the floor here;
     # without it this test would stop exercising the damping loop silently.
     phi_lin = solve_weighted_laplacian(G, nu, G.pi * (mu - nu))
     with pytest.raises(PositivityFloorError):
@@ -289,7 +289,7 @@ def test_the_jacobian_is_exact_on_a_shot_that_halved_a_step():
 
 
 def test_analyze_shooting_recovers_socp_synthesised_weights():
-    # The SOCP synthesises in a different discretisation, so expect O(h)
+    # The SOCP synthesizes in a different discretization, so expect O(h)
     # agreement, not solver tolerance. The genuinely O(h) quantity that
     # involves no QP is the true lam's Gram-form residual lam^T A lam: Julia
     # measured a factor of 100-300 between N=2 and N=10 and requires 10.
