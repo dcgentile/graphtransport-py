@@ -15,6 +15,8 @@ dev = ["pytest"]
 torch = []  # torch is now a core dependency; kept so "[torch]" installs still resolve
 jax = ["jax"]
 socp = ["cvxpy", "clarabel"]
+# notebooks/demo.ipynb; needs socp too
+notebook = ["matplotlib", "nbformat", "nbclient", "ipykernel"]
 
 [tool.pytest.ini_options]
 pythonpath = ["tests"]
