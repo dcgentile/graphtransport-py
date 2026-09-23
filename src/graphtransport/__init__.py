@@ -1,7 +1,10 @@
 """graphtransport: optimal transport and Wasserstein barycenters on graphs.
 
-Python port of GraphTransportation.jl. Modules are added incrementally; see
-README.md for the porting plan and current status.
+Geodesics, distances, barycenters and barycentric analysis for densities on
+the nodes of a graph, under the discrete transport metric. The unified entry
+points are geodesic, transport_cost, barycenter and analysis (see api.py).
+Began as a port of the Julia package GraphTransportation.jl, against which its
+numerics are cross-checked.
 """
 
 from graphtransport.api import GeodesicSolution, ShootingFallbackWarning, analysis, barycenter, geodesic, transport_cost

@@ -2,9 +2,10 @@
 
 Optimal transport on graphs, in Python: geodesics, distances, barycenters and
 barycentric coordinates for densities on the nodes of a graph, under the
-discrete transport metric of Maas and of Erbar, Rumpf, Schmitzer & Simon. A
-port of [GraphTransportation.jl](https://github.com/dcgentile/GraphTransportation.jl),
-cross-checked against it.
+discrete transport metric of Maas and of Erbar, Rumpf, Schmitzer & Simon.
+It began as a port of the Julia package
+[GraphTransportation.jl](https://github.com/dcgentile/GraphTransportation.jl),
+and its numerics are cross-checked against it.
 
 <figure markdown>
 ![A geodesic from a blob to a ring on a 16×16 grid](assets/hero-light.gif#only-light){ width="300" }
@@ -17,7 +18,7 @@ shooting (display smoothed between nodes).</figcaption>
 
 ```
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # the CPU build; plain pip fetches CUDA
-pip install "graphtransport[socp]"                                    # [socp] adds the SOCP method
+pip install "graphtransport[socp] @ git+https://github.com/dcgentile/graphtransport-py"   # [socp]: the SOCP method
 ```
 
 ## Quick start
