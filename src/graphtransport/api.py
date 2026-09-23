@@ -457,7 +457,7 @@ def _with_fallback(what: str, fallback: bool, run_shooting, run_socp):
         if isinstance(exc, _NotInterior):
             summary = f"method='shooting' cannot take this data: {exc.summary}"
         else:
-            summary = getattr(exc, "summary", str(exc))
+            summary = getattr(exc, "summary", None) or str(exc)
         retry = getattr(exc, "retry_hint", None)
         retry = f" Newton ran out of iterations, so raising {retry} may let shooting solve it exactly." if retry else ""
         warnings.warn(

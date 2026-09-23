@@ -290,8 +290,9 @@ def test_more_than_one_torch_thread_warns_once():
     try:
         torch.set_num_threads(2)
         ham._threads_warned = False
-        with pytest.warns(TorchThreadsWarning, match="torch is using 2 threads.*set_num_threads"):
+        with pytest.warns(TorchThreadsWarning, match="torch is using 2 threads.*set_num_threads") as record:
             integrate_hamiltonian(G, rho0, phi0, nsteps=5)
+        assert record[0].filename == __file__  # the caller's line, not the solver's
         with warnings.catch_warnings():
             warnings.simplefilter("error", TorchThreadsWarning)
             integrate_hamiltonian(G, rho0, phi0, nsteps=5)  # once per process
@@ -302,3 +303,12 @@ def test_more_than_one_torch_thread_warns_once():
             integrate_hamiltonian(G, rho0, phi0, nsteps=5)  # one thread: nothing to say
     finally:
         torch.set_num_threads(threads)
+
+
+def test_warnings_skip_package_frames_only():
+    ham = importlib.import_module("graphtransport.shooting.hamiltonian")
+    assert ham._in_package("graphtransport")
+    assert ham._in_package("graphtransport.shooting.hamiltonian")
+    # a user's module that merely shares the prefix is the caller, not the library
+    assert not ham._in_package("graphtransport_experiments")
+    assert not ham._in_package("__main__")

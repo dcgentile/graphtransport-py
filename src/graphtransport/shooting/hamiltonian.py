@@ -44,11 +44,15 @@ class TorchThreadsWarning(UserWarning):
 _threads_warned = False
 
 
+def _in_package(module: str) -> bool:
+    return module == "graphtransport" or module.startswith("graphtransport.")
+
+
 def _stacklevel_outside_package() -> int:
     """The warnings.warn stacklevel of the first caller outside graphtransport,
     so a warning raised deep in the solver points at the user's own line."""
     frame, level = sys._getframe(1), 1
-    while frame is not None and frame.f_globals.get("__name__", "").startswith("graphtransport"):
+    while frame is not None and _in_package(frame.f_globals.get("__name__", "")):
         frame, level = frame.f_back, level + 1
     return level
 
