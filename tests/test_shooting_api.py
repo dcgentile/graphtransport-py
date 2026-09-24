@@ -467,3 +467,17 @@ def test_direct_barycenter_still_exempts_a_zero_weight_reference(grid4):
     G, A, B, _ = grid4
     _, _, info = barycenter_shooting(G, [A, B, _with_zeros(G, A)], [0.5, 0.5, 0.0])
     assert info["status"] == "converged"
+
+
+def test_fallback_warning_without_a_summary_uses_the_message(monkeypatch):
+    # every shooting path sets a summary today; one that does not must still say what failed
+    import graphtransport.api as api
+    import graphtransport.solvers as solvers
+
+    monkeypatch.setattr(solvers, "cvxpy_available", lambda: True)
+
+    def fail():
+        raise ShootingError("Newton diverged")
+
+    with pytest.warns(ShootingFallbackWarning, match="transport_cost: Newton diverged. Falling back"):
+        assert api._with_fallback("transport_cost", True, fail, lambda: "socp") == "socp"

@@ -16,40 +16,19 @@ import numpy as np
 
 from graphtransport.chains import markov_chain_from_edge_list, markov_chain_from_weight_matrix
 
+# Four 4-cycles and the rungs between them; each row is one cycle or one set of
+# rungs. The edge order fixes the momentum indexing, which the Julia
+# cross-checks compare, so the list is written out rather than generated.
 _HYPERCUBE_EDGES = [
-    (0, 1),
-    (1, 2),
-    (2, 3),
-    (3, 0),
-    (0, 4),
-    (1, 5),
-    (2, 6),
-    (3, 7),
-    (4, 5),
-    (5, 6),
-    (6, 7),
-    (7, 4),
-    (0, 8),
-    (1, 9),
-    (2, 10),
-    (3, 11),
-    (4, 12),
-    (5, 13),
-    (6, 14),
-    (7, 15),
-    (8, 9),
-    (9, 10),
-    (10, 11),
-    (11, 8),
-    (8, 12),
-    (9, 13),
-    (10, 14),
-    (11, 15),
-    (12, 13),
-    (13, 14),
-    (14, 15),
-    (15, 12),
-]
+    (0, 1), (1, 2), (2, 3), (3, 0),
+    (0, 4), (1, 5), (2, 6), (3, 7),
+    (4, 5), (5, 6), (6, 7), (7, 4),
+    (0, 8), (1, 9), (2, 10), (3, 11),
+    (4, 12), (5, 13), (6, 14), (7, 15),
+    (8, 9), (9, 10), (10, 11), (11, 8),
+    (8, 12), (9, 13), (10, 14), (11, 15),
+    (12, 13), (13, 14), (14, 15), (15, 12),
+]  # fmt: skip
 
 
 def triangle_markov_chain():

@@ -183,5 +183,12 @@ def geodesic_shooting_torch(
     m = G.mean.torch_theta(rho_t[x], rho_t[y]) * (phi_t[x] - phi_t[y])
     W2 = 2 * _torch_hamiltonian(G, a, phi0)
     return GeodesicSolution(
-        W2, rho_path, m, m[:, 0], -2 * phi0, 2 * phi_path[:, -1], "converged", time.perf_counter() - t0
+        W2=W2,
+        rho=rho_path,
+        m=m,
+        m0=m[:, 0],
+        phi0=-2 * phi0,
+        phi1=2 * phi_path[:, -1],
+        status="converged",
+        solvetime=time.perf_counter() - t0,
     )
