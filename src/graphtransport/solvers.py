@@ -18,9 +18,10 @@ def import_cvxpy():
     except ImportError as exc:
         raise ImportError(
             "this function needs cvxpy and a conic solver; install them with "
-            "`pip install 'graphtransport[socp]'`. The SOCP is the default method of the "
-            "unified API, so geodesic/barycenter/analysis need it too; method='sinkhorn' "
-            "is a different algorithm that needs no optional dependency."
+            "`pip install 'graphtransport[socp]'`. The SOCP is needed for method='socp', "
+            "for the automatic fallback when shooting (the default method) cannot take the "
+            "data, and for the analysis QP's cvxpy path; method='shooting' and "
+            "method='sinkhorn' need no optional dependency."
         ) from exc
     return cvxpy
 
