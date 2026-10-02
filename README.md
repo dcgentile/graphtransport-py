@@ -180,7 +180,7 @@ review threads are public. The design decisions were David's, among them:
 python -m venv .venv && source .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev,jax,socp]"
-pytest                   # about 4 minutes; pytest -m "" adds the slow Julia cross-checks
+pytest                   # about 6 minutes; pytest -m "" adds the slow Julia cross-checks
 ruff check . && ruff format --check . && pyright   # CI's lint job
 ```
 
