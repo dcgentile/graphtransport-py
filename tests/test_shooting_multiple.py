@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from graphtransport import MarkovGraph, analysis, barycenter, geodesic, grid_markov_chain, transport_cost
-from graphtransport.shooting import hamiltonian, log_map
+from graphtransport.shooting import ShootingError, hamiltonian, log_map
 from graphtransport.shooting.geodesic import geodesic_shooting
 from graphtransport.shooting.multiple import segment_steps
 
@@ -169,6 +169,15 @@ def test_gradients_through_multiple_shooting_are_exact():
 # ----- segments="auto", the default -----
 
 
+def _stalling_pair():
+    # 7x7 Gaussian bumps at opposite corners: auto's multiple-shooting attempt stalls
+    G, _, _ = _corner_pair(7, 6)
+    xy = np.array([(i % 7, i // 7) for i in range(G.n)], dtype=float)
+    a = np.exp(-(xy**2).sum(axis=1) / (2 * 1.4**2)) + 0.05
+    b = a[::-1].copy()
+    return G, a / (a @ G.pi), b / (b @ G.pi)
+
+
 def test_auto_keeps_a_short_transport_on_single_shooting():
     # near-uniform densities: Newton's first step is a full one, so no switch
     G = MarkovGraph(*grid_markov_chain(5))
@@ -207,12 +216,18 @@ def test_auto_gives_up_quickly_where_multiple_shooting_stalls():
     # from its default start stalls (a first step of 1/16, residual 41 -> 39
     # over 8 steps) and would fail after 50. auto abandons it after one step and
     # carries on by single shooting -- same answer, and 2.3 s rather than 12.6 s.
-    G, A, B = _corner_pair(7, 6)
-    xy = np.array([(i % 7, i // 7) for i in range(G.n)], dtype=float)
-    a = np.exp(-(xy**2).sum(axis=1) / (2 * 1.4**2)) + 0.05
-    b = a[::-1].copy()
-    a, b = a / (a @ G.pi), b / (b @ G.pi)
+    G, a, b = _stalling_pair()
     single = log_map(G, a, b, segments=1)
     auto = log_map(G, a, b)
     assert auto.starts is None  # ended on single shooting
-    assert auto.iters == single.iters and auto.W2 == pytest.approx(single.W2, rel=1e-12)
+    assert auto.W2 == pytest.approx(single.W2, rel=1e-12)
+    assert auto.iters == single.iters + 1  # plus the abandoned multiple-shooting step
+
+
+def test_auto_charges_abandoned_multiple_shooting_steps_to_maxiters():
+    # The abandoned attempt's step counts in iters and against maxiters: single
+    # shooting needs 15 steps, the abandoned attempt took 1 more, so 15 is not enough.
+    G, a, b = _stalling_pair()
+    assert log_map(G, a, b, maxiters=16).iters == 16
+    with pytest.raises(ShootingError, match="did not converge in 15 iterations"):
+        log_map(G, a, b, maxiters=15)

@@ -62,6 +62,7 @@ class ShootingError(RuntimeError):
 
     summary: str | None = None
     retry_hint: str | None = None
+    iters: int = 0  # Newton steps taken before failing (multiple shooting sets it; log_map charges it)
 
 
 @dataclass
@@ -518,9 +519,11 @@ def log_map(
                     verbose=verbose,
                     give_up_early=True,
                 )
-            except ShootingError:
+            except ShootingError as exc:
                 # multiple shooting could not take it (or was stalling, and gave up early);
-                # single shooting carries on from its first step
+                # single shooting carries on from its first step, the abandoned attempt's
+                # steps charged to the same budget
+                iters += exc.iters
                 if verbose:
                     logger.info("log_map: multiple shooting did not converge; continuing by single shooting")
             else:

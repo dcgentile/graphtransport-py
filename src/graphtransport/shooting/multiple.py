@@ -258,40 +258,44 @@ def solve_multiple_shooting(
 
     r = r_start = norm(R)
     iters = 0
-    while r > tol:
-        if iters >= maxiters:
-            raise ShootingError(
-                f"log_map: Newton did not converge in {maxiters} iterations (residual {r:.3e} > tol {tol:.0e}; "
-                f"segments={K}). Fall back to method='socp'."
-            )
-        delta = -spsolve(system.jacobian(x, schedules).tocsc(), system.reduced(R))
-        if not np.all(np.isfinite(delta)):
-            raise ShootingError(f"log_map(segments={K}): singular Newton system. Fall back to method='socp'.")
-        alpha, accepted = 1.0, False
-        for _ in range(12):  # single shooting's budget: both give up at the same step length
-            x_try = x + alpha * delta
-            try:
-                R_try, schedules_try = system.residual(x_try)
-            except PositivityFloorError:
-                R_try = schedules_try = None
-            if R_try is not None and norm(R_try) <= (1 - 1e-4 * alpha) * r:
-                x, R, schedules, r = x_try, R_try, schedules_try, norm(R_try)
-                accepted = True
-                break
-            alpha /= 2
-        if not accepted:
-            raise ShootingError(
-                f"log_map: line search failed at iteration {iters + 1} (residual {r:.3e}; segments={K}). "
-                "Fall back to method='socp'."
-            )
-        iters += 1
-        if verbose:
-            logger.info("log_map(segments=%d): iter %d  residual %.3e  step %g", K, iters, r, alpha)
-        if give_up_early and r > tol and ((iters == 1 and alpha <= 1 / 8) or (iters == 3 and r > r_start / 2)):
-            raise ShootingError(
-                f"log_map(segments={K}): Newton is stalling (step {alpha:g} at iteration {iters}, residual {r:.3e} "
-                f"from {r_start:.3e})."
-            )
+    try:
+        while r > tol:
+            if iters >= maxiters:
+                raise ShootingError(
+                    f"log_map: Newton did not converge in {maxiters} iterations (residual {r:.3e} > tol {tol:.0e}; "
+                    f"segments={K}). Fall back to method='socp'."
+                )
+            delta = -spsolve(system.jacobian(x, schedules).tocsc(), system.reduced(R))
+            if not np.all(np.isfinite(delta)):
+                raise ShootingError(f"log_map(segments={K}): singular Newton system. Fall back to method='socp'.")
+            alpha, accepted = 1.0, False
+            for _ in range(12):  # single shooting's budget: both give up at the same step length
+                x_try = x + alpha * delta
+                try:
+                    R_try, schedules_try = system.residual(x_try)
+                except PositivityFloorError:
+                    R_try = schedules_try = None
+                if R_try is not None and norm(R_try) <= (1 - 1e-4 * alpha) * r:
+                    x, R, schedules, r = x_try, R_try, schedules_try, norm(R_try)
+                    accepted = True
+                    break
+                alpha /= 2
+            if not accepted:
+                raise ShootingError(
+                    f"log_map: line search failed at iteration {iters + 1} (residual {r:.3e}; segments={K}). "
+                    "Fall back to method='socp'."
+                )
+            iters += 1
+            if verbose:
+                logger.info("log_map(segments=%d): iter %d  residual %.3e  step %g", K, iters, r, alpha)
+            if give_up_early and r > tol and ((iters == 1 and alpha <= 1 / 8) or (iters == 3 and r > r_start / 2)):
+                raise ShootingError(
+                    f"log_map(segments={K}): Newton is stalling (step {alpha:g} at iteration {iters}, residual {r:.3e} "
+                    f"from {r_start:.3e})."
+                )
+    except ShootingError as exc:
+        exc.iters = iters  # steps spent, for log_map to charge
+        raise
 
     rho_s, phi_s = system.unpack(x)
     return rho_s, phi_s, iters, r
