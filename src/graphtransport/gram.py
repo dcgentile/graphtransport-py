@@ -34,8 +34,12 @@ def simplex_qp(A, *, method: str = "auto", solver=None) -> np.ndarray:
     method="cvxpy" solves it as a conic program (``solver`` picks the conic
     solver; needs the ``socp`` extra); method="scipy" uses SLSQP with the
     analytic gradient and needs nothing beyond scipy; "auto" (default) is
-    cvxpy when installed, otherwise scipy. Both agree to the conic solver's
-    tolerance (~1e-8).
+    cvxpy when installed, otherwise scipy. The solver's answer is then
+    polished by an active-set iteration (see _polish_active_set): a conic
+    solver stops on its objective gap, which at a boundary optimum with value
+    ~0 (a target that is a barycenter of some of the references) leaves
+    weights wrong by ~1e-4, while the polished weights agree with the exact
+    solution to ~1e-9 or better.
 
     The minimizer is invariant under A -> c A (c > 0), so A is divided by its
     largest entry first: a conic solver stops on absolute tolerances, and a
@@ -68,7 +72,50 @@ def simplex_qp(A, *, method: str = "auto", solver=None) -> np.ndarray:
         method = "cvxpy" if cvxpy_available() else "scipy"
     lam = _simplex_qp_cvxpy(A, solver) if method == "cvxpy" else _simplex_qp_scipy(A)
     lam = np.maximum(lam, 0.0)
+    lam = _polish_active_set(A, lam / lam.sum())
     return lam / lam.sum()
+
+
+def _polish_active_set(A, lam, tol: float = 1e-12) -> np.ndarray:
+    """Refine an approximate simplex-QP minimizer ``lam`` of the scaled A by an
+    active-set iteration started from its support: solve the KKT system
+    [[A_S, 1], [1^T, 0]] [x; mu] = [0; 1] on the support S, drop the most
+    negative weight if any is negative, add the off-support index whose
+    gradient (A x)_j is most below the multiplier if any is, and repeat. The
+    bordered system stays well conditioned when A is singular on S, as it is
+    when the target is exactly a barycenter. Returns the input unless the
+    iteration reaches a KKT point whose objective is no larger."""
+    p = A.shape[0]
+    support = lam > 1e-7
+    x = lam
+    for _ in range(2 * p + 10):
+        idx = np.flatnonzero(support)
+        k = len(idx)
+        K = np.zeros((k + 1, k + 1))
+        K[:k, :k] = A[np.ix_(idx, idx)]
+        K[:k, k] = K[k, :k] = 1.0
+        rhs = np.zeros(k + 1)
+        rhs[k] = 1.0
+        try:
+            sol = np.linalg.solve(K, rhs)
+        except np.linalg.LinAlgError:
+            return lam
+        if not np.all(np.isfinite(sol)):
+            return lam
+        x = np.zeros(p)
+        x[idx] = sol[:k]
+        if x[idx].min() < 0:
+            support[idx[np.argmin(x[idx])]] = False
+            if not support.any():
+                return lam
+            continue
+        slack = A @ x - x @ A @ x  # >= 0 off the support at an optimum
+        slack[support] = np.inf
+        j = int(np.argmin(slack))
+        if slack[j] >= -tol:
+            return x if x @ A @ x <= lam @ A @ lam else lam
+        support[j] = True
+    return lam
 
 
 def _simplex_qp_cvxpy(A, solver) -> np.ndarray:
