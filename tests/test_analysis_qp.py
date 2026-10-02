@@ -100,6 +100,20 @@ def _planted(seed=0):
 
 
 @pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("seed", range(4))
+def test_simplex_qp_recovers_a_boundary_minimizer_of_value_zero(method, seed):
+    # A target that is a barycenter of only some references: the minimum is 0,
+    # attained with lam_3 = 0. The conic solver alone stops on its objective
+    # gap and returned weights wrong by ~1e-4 here; the active-set polish
+    # brings every backend to round-off.
+    rng = np.random.default_rng(seed)
+    lam = np.array([0.5, 0.3, 0.2, 0.0])
+    V = rng.normal(size=(4, 12))
+    V[2] = -(lam[0] * V[0] + lam[1] * V[1]) / lam[2]
+    np.testing.assert_allclose(simplex_qp(V @ V.T, method=method), lam, atol=1e-8)
+
+
+@pytest.mark.parametrize("method", METHODS)
 @pytest.mark.parametrize("scale", [1e-16, 1e-12, 1e-8, 1e-4, 1.0, 1e4, 1e8])
 def test_simplex_qp_is_scale_invariant(method, scale):
     # Before normalizing A, cvxpy returned an error of 1e-2 at scale 1e-8 and
