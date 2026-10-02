@@ -3,8 +3,8 @@
 One public function per task with a ``method`` keyword selecting the
 numerical algorithm:
 
-- ``"shooting"`` (default): Newton shooting on the Hamiltonian flow. Exact in
-  time, no conic solver, every AdmissibleMean; requires **strictly
+- ``"shooting"`` (default): Newton shooting on the Hamiltonian flow. Fourth-order
+  in time (RK4), no conic solver, every AdmissibleMean; requires **strictly
   positive** densities, and falls back to the SOCP with a
   ShootingFallbackWarning when it cannot take the data or fails on it
   (``fallback=False`` raises instead).
