@@ -93,6 +93,21 @@ def test_barycenter_agrees_with_the_certified_socp_optimum(grid4):
     np.testing.assert_allclose(analysis(G, nu_sh, refs), lam, atol=1e-3)
 
 
+@pytest.mark.parametrize("qp_method", ["cvxpy", "scipy"])
+def test_analysis_recovers_shooting_weights_to_the_barycenters_own_tolerance(grid4, qp_method):
+    # Measured on this fixture: the recovery error is 2e-9 for both QP methods
+    # and for the exact active-set solve of the same Gram matrix, so the limit
+    # is the barycenter's gradient norm (7e-9 at the "stalled" floor), not the
+    # QP. Pinned with a 50x margin.
+    if qp_method == "cvxpy":
+        pytest.importorskip("cvxpy")
+    G, A, B, C = grid4
+    refs, lam = [A, B, C], np.array([0.5, 0.3, 0.2])
+    nu, _, info = barycenter(G, refs, lam, tol=1e-9)
+    assert info["grad_hist"][-1] < 1e-8
+    np.testing.assert_allclose(analysis(G, nu, refs, qp_method=qp_method), lam, atol=1e-7, rtol=0)
+
+
 def test_analysis_recovers_socp_synthesised_weights_to_discretisation_error(grid4):
     pytest.importorskip("cvxpy")
     G, A, B, C = grid4
