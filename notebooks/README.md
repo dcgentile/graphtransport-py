@@ -27,3 +27,24 @@
   ```
   python notebooks/build_demo.py notebooks/demo.ipynb --execute
   ```
+
+- **`moved_or_appeared.ipynb`**: an application of the barycentric coding
+  model (BCM) to graph signals. It uses the residual of the BCM's analysis
+  step as a test of whether a snapshot of a network (here, a population on a
+  small street network) could have been produced by moving mass among known
+  regimes along the edges, or whether mass teleported, appeared from nowhere,
+  or took an unexpected route. It covers:
+  - the transport metric through a graph-signal-processing lens: locally a
+    low-pass, inverse-Laplacian norm, checked against exact distances;
+  - why any first-order (linearized) version of the test reduces to linear
+    unmixing;
+  - a calibration against $\ell^2$ unmixing, its first-order transport variant
+    and linear optimal transport, a simulated day with corrupted frames, and
+    filling a missing frame by interpolating BCM coordinates.
+
+  Rebuild it with fresh outputs (about two minutes):
+
+  ```
+  python notebooks/build_moved_or_appeared.py notebooks/moved_or_appeared.ipynb --execute
+  ```
+
