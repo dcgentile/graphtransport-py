@@ -27,3 +27,42 @@
   ```
   python notebooks/build_demo.py notebooks/demo.ipynb --execute
   ```
+
+- **`moved_or_appeared.ipynb`**: an application of the barycentric coding
+  model (BCM) to graph signals. It uses the residual of the BCM's analysis
+  step as a test of whether a snapshot of a network (here, a population on a
+  small street network) could have been produced by moving mass among known
+  regimes along the edges, or whether mass teleported, appeared from nowhere,
+  or took an unexpected route. It covers:
+  - the transport metric through a graph-signal-processing lens: locally a
+    low-pass, inverse-Laplacian norm, checked against exact distances;
+  - why any first-order (linearized) version of the test reduces to linear
+    unmixing;
+  - a calibration against $\ell^2$ unmixing, its first-order transport variant
+    and linear optimal transport, a simulated day with corrupted frames, and
+    filling a missing frame by interpolating BCM coordinates.
+
+  Rebuild it with fresh outputs (about two minutes):
+
+  ```
+  python notebooks/build_moved_or_appeared.py notebooks/moved_or_appeared.ipynb --execute
+  ```
+
+- **`regime_learning.ipynb`**: learning the BCM's regimes from unlabeled
+  snapshots, by gradient descent on the mean squared barycentric defect with
+  exact gradients through the log maps. On a 6×6 grid with three planted
+  regimes it covers:
+  - a check of the gradient against finite differences;
+  - Adam passing close to the planted regimes and settling in a worse basin,
+    and the loss slice that shows the basin's wall;
+  - L-BFGS-B recovering the regimes, with and without frames at a regime;
+  - animations of each run, written to `notebooks/animations/`.
+
+  Training takes about an hour on 16 cores. The build caches the runs in
+  `notebooks/data/regime_learning_runs.npz` and reuses them when present; that
+  file and the animations are not tracked. Rebuild from the cache (about three
+  minutes), or retrain with `--train`:
+
+  ```
+  python notebooks/build_regime_learning.py notebooks/regime_learning.ipynb --execute
+  ```
